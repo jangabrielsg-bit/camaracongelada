@@ -62,14 +62,15 @@
             TrendingUp: (props) => <IconBase {...props}><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></IconBase>,
             ChevronDown: (props) => <IconBase {...props}><path d="m6 9 6 6 6-6"/></IconBase>,
             ChevronRight: (props) => <IconBase {...props}><path d="m9 18 6-6-6-6"/></IconBase>,
-            Pencil: (props) => <IconBase {...props}><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></IconBase>
+            Pencil: (props) => <IconBase {...props}><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></IconBase>,
+            X: (props) => <IconBase {...props}><path d="M18 6 6 18"/><path d="m6 6 18 18"/></IconBase>
         };
 
         const { 
             LayoutDashboard, Package, ArrowRightLeft, Settings, 
             Download, Upload, FileSpreadsheet, FileText, 
             Plus, Minus, Trash2, Search, AlertTriangle, Building2, TrendingUp,
-            ChevronDown, ChevronRight, Pencil
+            ChevronDown, ChevronRight, Pencil, X
         } = Icons;
 
         // --- Funções Auxiliares de Data (Correção de Fuso Horário) ---
@@ -215,6 +216,7 @@
             // Estado de UI
             const [expandedGroups, setExpandedGroups] = useState({}); 
             const [nameSuggestions, setNameSuggestions] = useState([]); 
+            const [searchTerm, setSearchTerm] = useState(''); // Nova busca global
 
             // Formulários e Modais
             const [showModal, setShowModal] = useState(false);
@@ -255,10 +257,24 @@
                 localStorage.setItem('avariaData', JSON.stringify(dataToSave));
             }, [items, history, sectors, reasons, destinations, companyLogo]);
 
-            // --- Lógica de Agrupamento ---
+            // Limpa a busca ao trocar de aba
+            useEffect(() => {
+                setSearchTerm('');
+            }, [activeTab]);
+
+            // --- Lógica de Agrupamento COM FILTRO DE BUSCA ---
             const groupedItems = useMemo(() => {
                 const groups = {};
-                items.forEach(item => {
+                // Filtragem Inteligente
+                const term = searchTerm.toLowerCase();
+                const filteredItems = items.filter(item => 
+                    item.name.toLowerCase().includes(term) ||
+                    item.sector.toLowerCase().includes(term) ||
+                    (item.reason && item.reason.toLowerCase().includes(term)) ||
+                    (item.expiry && formatDate(item.expiry).includes(term))
+                );
+
+                filteredItems.forEach(item => {
                     const normalizedName = item.name.trim();
                     const key = normalizedName.toLowerCase(); 
                     if (!groups[key]) {
@@ -278,7 +294,17 @@
                     ...g,
                     totalQty: Number(g.totalQty.toFixed(2))
                 }));
-            }, [items]);
+            }, [items, searchTerm]);
+
+            // --- Histórico COM FILTRO DE BUSCA ---
+            const filteredHistory = useMemo(() => {
+                const term = searchTerm.toLowerCase();
+                return history.filter(h => 
+                    h.itemName.toLowerCase().includes(term) ||
+                    h.type.toLowerCase().includes(term) ||
+                    (h.detail && h.detail.toLowerCase().includes(term))
+                );
+            }, [history, searchTerm]);
 
             const toggleGroup = (name) => {
                 setExpandedGroups(prev => ({ ...prev, [name]: !prev[name] }));
@@ -700,9 +726,27 @@
 
             const renderInventory = () => (
                 <div className="space-y-4">
-                    <div className="flex justify-between items-center">
+                    <div className="flex flex-col md:flex-row justify-between items-center gap-4">
                         <h2 className="text-xl font-bold text-gray-800">Estoque Atual</h2>
-                        <button onClick={() => openModal('ADD')} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition shadow-md">
+                        
+                        {/* Busca Inteligente */}
+                        <div className="flex-1 max-w-md relative w-full">
+                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                             <input
+                                type="text"
+                                placeholder="Buscar por nome, setor, motivo..."
+                                value={searchTerm}
+                                onChange={e => setSearchTerm(e.target.value)}
+                                className="w-full pl-10 pr-10 py-2 border rounded-full text-sm focus:ring-2 focus:ring-blue-500 outline-none shadow-sm transition-all"
+                             />
+                             {searchTerm && (
+                                <button onClick={() => setSearchTerm('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                                    <X size={16} />
+                                </button>
+                             )}
+                        </div>
+
+                        <button onClick={() => openModal('ADD')} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition shadow-md w-full md:w-auto justify-center">
                             <Plus size={18} /> Novo Item
                         </button>
                     </div>
@@ -722,7 +766,7 @@
                                 </thead>
                                 <tbody className="divide-y divide-gray-100">
                                     {groupedItems.length === 0 ? (
-                                        <tr><td colSpan="5" className="p-8 text-center text-gray-400">Nenhum item na câmara de avaria.</td></tr>
+                                        <tr><td colSpan="5" className="p-8 text-center text-gray-400">Nenhum item encontrado.</td></tr>
                                     ) : (
                                         groupedItems.map(group => (
                                             <React.Fragment key={group.name}>
@@ -790,9 +834,27 @@
 
             const renderHistory = () => (
                 <div className="space-y-4">
-                    <div className="flex justify-between items-center">
+                    <div className="flex flex-col md:flex-row justify-between items-center gap-4">
                         <h2 className="text-xl font-bold text-gray-800">Histórico de Movimentação</h2>
-                        <div className="flex gap-2">
+                        
+                        {/* Busca Inteligente (Histórico) */}
+                        <div className="flex-1 max-w-md relative w-full">
+                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                             <input
+                                type="text"
+                                placeholder="Filtrar por item, tipo ou motivo..."
+                                value={searchTerm}
+                                onChange={e => setSearchTerm(e.target.value)}
+                                className="w-full pl-10 pr-10 py-2 border rounded-full text-sm focus:ring-2 focus:ring-blue-500 outline-none shadow-sm transition-all"
+                             />
+                             {searchTerm && (
+                                <button onClick={() => setSearchTerm('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                                    <X size={16} />
+                                </button>
+                             )}
+                        </div>
+
+                        <div className="flex gap-2 w-full md:w-auto justify-end">
                             <button onClick={exportExcel} className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded text-sm shadow">
                                 <FileSpreadsheet size={16} /> Excel
                             </button>
@@ -815,7 +877,7 @@
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-100">
-                                    {history.map(h => (
+                                    {filteredHistory.map(h => (
                                         <tr key={h.id}>
                                             <td className="p-4 text-xs text-gray-500">{new Date(h.date).toLocaleString()}</td>
                                             <td className="p-4">
@@ -828,6 +890,9 @@
                                             <td className="p-4 text-right font-mono">{Number(h.qty).toFixed(2).replace(/\.00$/, '')}</td>
                                         </tr>
                                     ))}
+                                    {filteredHistory.length === 0 && (
+                                        <tr><td colSpan="5" className="p-8 text-center text-gray-400">Nenhum registro encontrado.</td></tr>
+                                    )}
                                 </tbody>
                             </table>
                         </div>
@@ -911,7 +976,7 @@
                             </button>
                         </nav>
                         <div className="p-4 border-t border-gray-100 text-xs text-center text-gray-400">
-                            v1.6.0 - Sistema Local
+                            v1.7.0 - Sistema Local
                         </div>
                     </aside>
 
