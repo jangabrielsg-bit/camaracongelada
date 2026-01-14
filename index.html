@@ -15,7 +15,7 @@
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- Libraries for Charts, PDF, Excel (Versões compatíveis fixadas) -->
+    <!-- Libraries for Charts, PDF, Excel -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
     
@@ -597,7 +597,7 @@
                 });
 
                 const tableColumn = ["Produto", "Setor", "Motivo Entrada", "Qtd", "Validade"];
-                const tableRows = sortedItems.map(item => [item.name, item.sector, item.reason || '-', item.quantity, formatDate(item.expiry)]);
+                const tableRows = sortedItems.map(item => [item.name, item.sector, item.reason || '-', item.quantity.toFixed(2), formatDate(item.expiry)]);
                 
                 doc.autoTable({ 
                     head: [tableColumn], 
@@ -639,7 +639,7 @@
                 doc.setFontSize(14);
                 doc.text("Histórico Recente de Movimentações", 14, 20);
                 const histColumn = ["Data", "Tipo", "Produto", "Qtd", "Motivo/Destino"];
-                const histRows = history.slice(0, 100).map(h => [new Date(h.date).toLocaleDateString(), h.type, h.itemName, Number(h.qty).toFixed(2).replace(/\.00$/, ''), h.detail]);
+                const histRows = history.slice(0, 100).map(h => [new Date(h.date).toLocaleDateString(), h.type, h.itemName, Number(h.qty).toFixed(2), h.detail]);
                 doc.autoTable({ head: [histColumn], body: histRows, startY: 25, theme: 'striped', styles: { fontSize: 8 } });
                 
                 doc.save("relatorio_avaria_completo.pdf");
@@ -698,7 +698,13 @@
                             labels: sortedSectors.map(e => e[0]),
                             datasets: [{ data: sortedSectors.map(e => e[1]), backgroundColor: ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#6366f1'] }]
                         },
-                        options: { responsive: true, plugins: { title: { display: true, text: 'Por Setor' } } }
+                        options: { 
+                            responsive: true, 
+                            plugins: { 
+                                title: { display: true, text: 'Por Setor' },
+                                tooltip: { callbacks: { label: (c) => ` ${c.label}: ${c.raw.toFixed(2)}` } }
+                            } 
+                        }
                     });
 
                     visibleChartInstance2.current = new Chart(visibleChart2Ref.current.getContext('2d'), {
@@ -709,7 +715,14 @@
                                 label: 'Estoque', data: Object.values(stockTimeline), borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.1)', fill: true, tension: 0.3
                             }]
                         },
-                        options: { responsive: true, plugins: { title: { display: true, text: 'Evolução Diária' } }, scales: { y: { beginAtZero: true } } }
+                        options: { 
+                            responsive: true, 
+                            plugins: { 
+                                title: { display: true, text: 'Evolução Diária' },
+                                tooltip: { callbacks: { label: (c) => ` ${c.label}: ${c.raw.toFixed(2)}` } }
+                            }, 
+                            scales: { y: { beginAtZero: true } } 
+                        }
                     });
 
                     visibleChartInstance3.current = new Chart(visibleChart3Ref.current.getContext('2d'), {
@@ -721,7 +734,11 @@
                         options: { 
                             responsive: true, 
                             indexAxis: 'y', 
-                            plugins: { title: { display: true, text: 'Motivos de Entrada (Estoque Atual)' }, legend: { display: false } } 
+                            plugins: { 
+                                title: { display: true, text: 'Motivos de Entrada (Estoque Atual)' }, 
+                                legend: { display: false },
+                                tooltip: { callbacks: { label: (c) => ` ${c.label}: ${c.raw.toFixed(2)}` } }
+                            } 
                         }
                     });
 
@@ -731,7 +748,13 @@
                             labels: sortedDestinations.map(e => e[0]),
                             datasets: [{ data: sortedDestinations.map(e => e[1]), backgroundColor: ['#8b5cf6', '#ec4899', '#6366f1', '#14b8a6'] }]
                         },
-                        options: { responsive: true, plugins: { title: { display: true, text: 'Destinos de Saída (Histórico)' } } }
+                        options: { 
+                            responsive: true, 
+                            plugins: { 
+                                title: { display: true, text: 'Destinos de Saída (Histórico)' },
+                                tooltip: { callbacks: { label: (c) => ` ${c.label}: ${c.raw.toFixed(2)}` } }
+                            } 
+                        }
                     });
                 }
             }, [activeTab, items, history]);
@@ -775,7 +798,7 @@
                         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
                             <h3 className="text-gray-500 text-sm font-medium">Itens em Avaria</h3>
                             <p className="text-3xl font-bold text-red-600">
-                                {Number(items.reduce((acc, i) => acc + i.quantity, 0).toFixed(2))}
+                                {items.reduce((acc, i) => acc + i.quantity, 0).toFixed(2)}
                             </p>
                         </div>
                         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
@@ -869,7 +892,7 @@
                                                     </td>
                                                     <td className="p-4 font-bold text-gray-900">{group.name}</td>
                                                     <td className="p-4"><span className="px-2 py-1 rounded bg-gray-100 text-xs">{group.sector}</span></td>
-                                                    <td className="p-4 text-center text-lg font-bold text-blue-600">{Number(group.totalQty.toFixed(2))}</td>
+                                                    <td className="p-4 text-center text-lg font-bold text-blue-600">{group.totalQty.toFixed(2)}</td>
                                                     <td className="p-4 text-center text-xs text-gray-400">{group.batches.length} lote(s)</td>
                                                 </tr>
 
@@ -898,7 +921,7 @@
                                                                                         {isExpired(batch.expiry) && <AlertTriangle size={12}/>}
                                                                                     </span>
                                                                                 </td>
-                                                                                <td className="p-3 text-center font-bold text-sm">{batch.quantity}</td>
+                                                                                <td className="p-3 text-center font-bold text-sm">{batch.quantity.toFixed(2)}</td>
                                                                                 <td className="p-3 flex justify-center gap-2">
                                                                                     <button onClick={(e) => {e.stopPropagation(); openModal('ENTRY', batch)}} className="p-1 text-green-600 hover:bg-green-50 rounded" title="Adicionar a este lote"><Plus size={16}/></button>
                                                                                     <button onClick={(e) => {e.stopPropagation(); openModal('EXIT', batch)}} className="p-1 text-red-600 hover:bg-red-50 rounded" title="Retirar deste lote"><Minus size={16}/></button>
@@ -979,7 +1002,7 @@
                                             </td>
                                             <td className="p-4">{h.itemName} <span className="text-xs text-gray-400 ml-1">({h.sector})</span></td>
                                             <td className="p-4 italic text-gray-500">{h.detail}</td>
-                                            <td className="p-4 text-right font-mono">{Number(h.qty).toFixed(2).replace(/\.00$/, '')}</td>
+                                            <td className="p-4 text-right font-mono">{Number(h.qty).toFixed(2)}</td>
                                         </tr>
                                     ))}
                                     {filteredHistory.length === 0 && (
@@ -1068,7 +1091,7 @@
                             </button>
                         </nav>
                         <div className="p-4 border-t border-gray-100 text-xs text-center text-gray-400">
-                            v1.9.0 - Sistema Local
+                            v1.10.0 - Sistema Local
                         </div>
                     </aside>
 
