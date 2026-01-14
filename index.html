@@ -73,30 +73,24 @@
             ChevronDown, ChevronRight, Pencil, X
         } = Icons;
 
-        // --- Funções Auxiliares de Data (Correção de Fuso Horário) ---
-        
-        // Formata string "YYYY-MM-DD" para "DD/MM/YYYY" sem conversão de timezone
+        // --- Funções Auxiliares de Data ---
         const formatDate = (dateString) => {
             if (!dateString) return 'N/A';
             const [year, month, day] = dateString.split('-');
             return `${day}/${month}/${year}`;
         };
 
-        // Verifica validade sem problemas de timezone (compara apenas dia/mês/ano)
         const isExpired = (dateString) => {
             if (!dateString) return false;
             const today = new Date();
             today.setHours(0,0,0,0);
-            
             const [y, m, d] = dateString.split('-').map(Number);
-            // Cria data local: ano, mês (0-indexado), dia
             const expiryDate = new Date(y, m - 1, d); 
-            
             return expiryDate < today;
         };
 
         // --- Componente Auxiliar: Renderizador de Gráficos Offscreen para PDF ---
-        const OffscreenCharts = ({ items, history, onChartReady }) => {
+        const OffscreenCharts = ({ items, history }) => {
             const chart1Ref = useRef(null);
             const chart2Ref = useRef(null);
             const chart3Ref = useRef(null);
@@ -107,12 +101,12 @@
             const chartInstance4 = useRef(null);
 
             useEffect(() => {
-                // 1. Dados Setores (Estoque)
+                // 1. Dados Setores (Decrescente)
                 const sectorCounts = {};
                 items.forEach(i => { sectorCounts[i.sector] = (sectorCounts[i.sector] || 0) + i.quantity; });
-                const sortedSectors = Object.entries(sectorCounts).sort((a,b) => b[1] - a[1]); // Ordenação Decrescente
+                const sortedSectors = Object.entries(sectorCounts).sort((a,b) => b[1] - a[1]); 
                 
-                // 2. Dados Linha do Tempo
+                // 2. Dados Linha do Tempo (Cronológico)
                 const sortedHistory = [...history].sort((a,b) => new Date(a.date) - new Date(b.date));
                 const stockTimeline = {};
                 let runningTotal = 0;
@@ -127,21 +121,21 @@
                     stockTimeline[today] = items.reduce((acc, i) => acc + i.quantity, 0);
                 }
 
-                // 3. Dados Motivos (Estoque Atual)
+                // 3. Dados Motivos (Decrescente)
                 const reasonCounts = {};
                 items.forEach(i => {
                     const r = i.reason || 'Não especificado';
                     reasonCounts[r] = (reasonCounts[r] || 0) + i.quantity;
                 });
-                const sortedReasons = Object.entries(reasonCounts).sort((a,b) => b[1] - a[1]); // Ordenação Decrescente
+                const sortedReasons = Object.entries(reasonCounts).sort((a,b) => b[1] - a[1]);
 
-                // 4. Dados Destinos (Histórico de Saídas)
+                // 4. Dados Destinos (Decrescente)
                 const destinationCounts = {};
                 history.filter(h => h.type === 'SAÍDA').forEach(h => {
                     const d = h.detail || 'Não especificado';
                     destinationCounts[d] = (destinationCounts[d] || 0) + h.qty;
                 });
-                const sortedDestinations = Object.entries(destinationCounts).sort((a,b) => b[1] - a[1]); // Ordenação Decrescente
+                const sortedDestinations = Object.entries(destinationCounts).sort((a,b) => b[1] - a[1]);
 
                 // Cleanup
                 if (chartInstance1.current) chartInstance1.current.destroy();
@@ -216,7 +210,7 @@
             // Estado de UI
             const [expandedGroups, setExpandedGroups] = useState({}); 
             const [nameSuggestions, setNameSuggestions] = useState([]); 
-            const [searchTerm, setSearchTerm] = useState(''); // Nova busca global
+            const [searchTerm, setSearchTerm] = useState(''); 
 
             // Formulários e Modais
             const [showModal, setShowModal] = useState(false);
@@ -392,7 +386,7 @@
                             return item; 
                         }
                         const newQty = modalType === 'ENTRY' ? item.quantity + qty : item.quantity - qty;
-                        return { ...item, quantity: Number(newQty.toFixed(2)) }; // Limitando precisão
+                        return { ...item, quantity: Number(newQty.toFixed(2)) }; 
                     }
                     return item;
                 });
@@ -486,12 +480,18 @@
                     Produto: i.name, 
                     Setor: i.sector, 
                     Qtd: i.quantity, 
-                    Validade: i.expiry, 
-                    "Validade Formatada": formatDate(i.expiry), 
+                    Validade: formatDate(i.expiry), 
                     Motivo: i.reason || 'N/A' 
                 })));
                 XLSX.utils.book_append_sheet(wb, wsItems, "Estoque Detalhado");
-                const wsHistory = XLSX.utils.json_to_sheet(history.map(h => ({ Data: new Date(h.date).toLocaleString(), Tipo: h.type, Produto: h.itemName, Setor: h.sector, Qtd: h.qty, "Motivo/Destino": h.detail })));
+                const wsHistory = XLSX.utils.json_to_sheet(history.map(h => ({ 
+                    Data: new Date(h.date).toLocaleDateString('pt-BR'), 
+                    Tipo: h.type, 
+                    Produto: h.itemName, 
+                    Setor: h.sector, 
+                    Qtd: h.qty, 
+                    "Motivo/Destino": h.detail 
+                })));
                 XLSX.utils.book_append_sheet(wb, wsHistory, "Movimentações");
                 XLSX.writeFile(wb, "relatorio_avaria.xlsx");
             };
@@ -500,54 +500,79 @@
                 const { jsPDF } = window.jspdf;
                 const doc = new jsPDF();
 
-                if (companyLogo) { doc.addImage(companyLogo, 'PNG', 15, 10, 25, 25); }
-                doc.setFontSize(20);
-                doc.text("Relatório de Câmara de Avaria", 50, 20);
-                doc.setFontSize(10);
-                doc.text(`Gerado em: ${new Date().toLocaleString()}`, 50, 28);
-                doc.text('"Não se gerencia o que não se mede."', 50, 34);
-
+                // Cabeçalho aprimorado com Logo
+                if (companyLogo) { 
+                    doc.addImage(companyLogo, 'PNG', 15, 10, 30, 30); 
+                    doc.setFontSize(20);
+                    doc.text("Relatório de Câmara de Avaria", 50, 25);
+                    doc.setFontSize(10);
+                    doc.text(`Gerado em: ${new Date().toLocaleString()}`, 50, 32);
+                } else {
+                    doc.setFontSize(20);
+                    doc.text("Relatório de Câmara de Avaria", 105, 20, { align: "center" });
+                    doc.setFontSize(10);
+                    doc.text(`Gerado em: ${new Date().toLocaleString()}`, 105, 28, { align: "center" });
+                }
+                
+                // Remove a frase "Não se gerencia..." conforme solicitado
+                
                 let yPos = 50;
 
-                // Captura Gráficos
-                const c1 = document.getElementById('pdf-chart-1');
-                const c2 = document.getElementById('pdf-chart-2');
-                const c3 = document.getElementById('pdf-chart-3');
-                const c4 = document.getElementById('pdf-chart-4');
-                
+                // Tabela de Estoque - Ordenada por Validade Crescente (vence primeiro topo)
                 doc.setFontSize(14);
-                doc.text("Análise de Estoque e Fluxo", 14, yPos);
+                doc.text("Estoque Atual (Ordenado por Validade)", 14, yPos);
                 yPos += 10;
 
-                try {
-                    if(c1 && c2) {
-                        doc.addImage(c1.toDataURL("image/png"), 'PNG', 15, yPos, 70, 60);
-                        doc.addImage(c2.toDataURL("image/png"), 'PNG', 90, yPos, 100, 60);
-                        yPos += 65;
-                    }
-                    if(c3 && c4) {
-                        if(yPos > 230) { doc.addPage(); yPos = 20; }
-                        doc.text("Análise de Causas e Destinos", 14, yPos);
-                        yPos += 10;
-                        doc.addImage(c3.toDataURL("image/png"), 'PNG', 15, yPos, 80, 60);
-                        doc.addImage(c4.toDataURL("image/png"), 'PNG', 105, yPos, 80, 60);
-                        yPos += 70;
-                    }
-                } catch (e) { console.error(e); }
+                const sortedItems = [...items].sort((a, b) => {
+                    if (!a.expiry) return 1; 
+                    if (!b.expiry) return -1;
+                    return new Date(a.expiry) - new Date(b.expiry);
+                });
 
-                if(yPos > 250) { doc.addPage(); yPos = 20; }
-                doc.setFontSize(14);
-                doc.text("Estoque Atual (Agrupado)", 14, yPos);
-                yPos += 5;
                 const tableColumn = ["Produto", "Setor", "Motivo Entrada", "Qtd", "Validade"];
-                // Correção no PDF também para usar a função formatDate
-                const tableRows = items.map(item => [item.name, item.sector, item.reason || '-', item.quantity, formatDate(item.expiry)]);
-                doc.autoTable({ head: [tableColumn], body: tableRows, startY: yPos, theme: 'grid' });
+                const tableRows = sortedItems.map(item => [item.name, item.sector, item.reason || '-', item.quantity, formatDate(item.expiry)]);
+                
+                doc.autoTable({ 
+                    head: [tableColumn], 
+                    body: tableRows, 
+                    startY: yPos, 
+                    theme: 'grid',
+                    headStyles: { fillColor: [41, 128, 185] }
+                });
 
+                // Gráficos - Um por página, centralizados e grandes
+                const charts = [
+                    { id: 'pdf-chart-1', title: 'Distribuição por Setor' },
+                    { id: 'pdf-chart-2', title: 'Evolução do Estoque (Timeline)' },
+                    { id: 'pdf-chart-3', title: 'Principais Motivos de Avaria' },
+                    { id: 'pdf-chart-4', title: 'Destinos de Saída' }
+                ];
+
+                charts.forEach(chartInfo => {
+                    const canvas = document.getElementById(chartInfo.id);
+                    if (canvas) {
+                        doc.addPage(); // Nova página para cada gráfico
+                        doc.setFontSize(16);
+                        doc.text(chartInfo.title, 105, 20, { align: 'center' }); // Título centralizado
+                        
+                        try {
+                            const imgData = canvas.toDataURL("image/png");
+                            // Ajuste para ocupar largura da página (A4 width ~210mm, margin 15mm => max width 180mm)
+                            const imgProps = doc.getImageProperties(imgData);
+                            const pdfWidth = 180;
+                            const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+                            
+                            doc.addImage(imgData, 'PNG', 15, 40, pdfWidth, pdfHeight);
+                        } catch (e) { console.error("Erro ao gerar gráfico para PDF", e); }
+                    }
+                });
+
+                // Histórico
                 doc.addPage();
+                doc.setFontSize(14);
                 doc.text("Histórico Recente de Movimentações", 14, 20);
                 const histColumn = ["Data", "Tipo", "Produto", "Qtd", "Motivo/Destino"];
-                const histRows = history.slice(0, 100).map(h => [new Date(h.date).toLocaleDateString(), h.type, h.itemName, h.qty, h.detail]);
+                const histRows = history.slice(0, 100).map(h => [new Date(h.date).toLocaleDateString(), h.type, h.itemName, Number(h.qty).toFixed(2).replace(/\.00$/, ''), h.detail]);
                 doc.autoTable({ head: [histColumn], body: histRows, startY: 25, theme: 'striped', styles: { fontSize: 8 } });
                 
                 doc.save("relatorio_avaria_completo.pdf");
@@ -560,7 +585,7 @@
                     // 1. Dados Setores
                     const sectorCounts = {};
                     items.forEach(i => { sectorCounts[i.sector] = (sectorCounts[i.sector] || 0) + i.quantity; });
-                    const sortedSectors = Object.entries(sectorCounts).sort((a,b) => b[1] - a[1]); // Ordenação Decrescente
+                    const sortedSectors = Object.entries(sectorCounts).sort((a,b) => b[1] - a[1]); 
 
                     // 2. Dados Timeline
                     const sortedHistory = [...history].sort((a,b) => new Date(a.date) - new Date(b.date));
@@ -583,7 +608,7 @@
                         const r = i.reason || 'Não especificado';
                         reasonCounts[r] = (reasonCounts[r] || 0) + i.quantity;
                     });
-                    const sortedReasons = Object.entries(reasonCounts).sort((a,b) => b[1] - a[1]); // Ordenação Decrescente
+                    const sortedReasons = Object.entries(reasonCounts).sort((a,b) => b[1] - a[1]); 
 
                     // 4. Dados Destinos (Histórico de Saídas)
                     const destinationCounts = {};
@@ -591,7 +616,7 @@
                         const d = h.detail || 'Não especificado';
                         destinationCounts[d] = (destinationCounts[d] || 0) + h.qty;
                     });
-                    const sortedDestinations = Object.entries(destinationCounts).sort((a,b) => b[1] - a[1]); // Ordenação Decrescente
+                    const sortedDestinations = Object.entries(destinationCounts).sort((a,b) => b[1] - a[1]); 
 
                     // Destroy old
                     if (visibleChartInstance1.current) visibleChartInstance1.current.destroy();
@@ -628,7 +653,7 @@
                         },
                         options: { 
                             responsive: true, 
-                            indexAxis: 'y', // Barra Horizontal
+                            indexAxis: 'y', 
                             plugins: { title: { display: true, text: 'Motivos de Entrada (Estoque Atual)' }, legend: { display: false } } 
                         }
                     });
@@ -976,7 +1001,7 @@
                             </button>
                         </nav>
                         <div className="p-4 border-t border-gray-100 text-xs text-center text-gray-400">
-                            v1.7.0 - Sistema Local
+                            v1.8.0 - Sistema Local
                         </div>
                     </aside>
 
