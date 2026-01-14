@@ -155,7 +155,7 @@
                     animation: false, 
                     devicePixelRatio: 2,
                     plugins: {
-                        legend: { position: 'bottom' },
+                        legend: { position: 'bottom', labels: { padding: 20 } },
                         datalabels: {
                             color: '#000',
                             font: { weight: 'bold', size: 14 },
@@ -175,10 +175,18 @@
                     animation: false, 
                     devicePixelRatio: 2,
                     layout: {
-                        padding: 60 // Aumentei o padding para evitar cortes
+                        padding: {
+                            top: 40,
+                            bottom: 80, // Aumentado para evitar sobreposição com a legenda
+                            left: 50,
+                            right: 50
+                        }
                     },
                     plugins: {
-                        legend: { position: 'bottom' },
+                        legend: { 
+                            position: 'bottom', 
+                            labels: { padding: 30 } 
+                        },
                         datalabels: {
                             color: '#000',
                             font: { weight: 'bold', size: 11 },
@@ -892,7 +900,7 @@
                                                     </td>
                                                     <td className="p-4 font-bold text-gray-900">{group.name}</td>
                                                     <td className="p-4"><span className="px-2 py-1 rounded bg-gray-100 text-xs">{group.sector}</span></td>
-                                                    <td className="p-4 text-center text-lg font-bold text-blue-600">{group.totalQty.toFixed(2)}</td>
+                                                    <td className="p-4 text-center text-lg font-bold text-blue-600">{Number(group.totalQty.toFixed(2))}</td>
                                                     <td className="p-4 text-center text-xs text-gray-400">{group.batches.length} lote(s)</td>
                                                 </tr>
 
