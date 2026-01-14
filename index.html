@@ -72,68 +72,117 @@
             ChevronDown, ChevronRight, Pencil
         } = Icons;
 
+        // --- Funções Auxiliares de Data (Correção de Fuso Horário) ---
+        
+        // Formata string "YYYY-MM-DD" para "DD/MM/YYYY" sem conversão de timezone
+        const formatDate = (dateString) => {
+            if (!dateString) return 'N/A';
+            const [year, month, day] = dateString.split('-');
+            return `${day}/${month}/${year}`;
+        };
+
+        // Verifica validade sem problemas de timezone (compara apenas dia/mês/ano)
+        const isExpired = (dateString) => {
+            if (!dateString) return false;
+            const today = new Date();
+            today.setHours(0,0,0,0);
+            
+            const [y, m, d] = dateString.split('-').map(Number);
+            // Cria data local: ano, mês (0-indexado), dia
+            const expiryDate = new Date(y, m - 1, d); 
+            
+            return expiryDate < today;
+        };
+
         // --- Componente Auxiliar: Renderizador de Gráficos Offscreen para PDF ---
         const OffscreenCharts = ({ items, history, onChartReady }) => {
             const chart1Ref = useRef(null);
             const chart2Ref = useRef(null);
+            const chart3Ref = useRef(null);
+            const chart4Ref = useRef(null);
             const chartInstance1 = useRef(null);
             const chartInstance2 = useRef(null);
+            const chartInstance3 = useRef(null);
+            const chartInstance4 = useRef(null);
 
             useEffect(() => {
+                // 1. Dados Setores (Estoque)
                 const sectorCounts = {};
                 items.forEach(i => { sectorCounts[i.sector] = (sectorCounts[i.sector] || 0) + i.quantity; });
                 
+                // 2. Dados Linha do Tempo
                 const sortedHistory = [...history].sort((a,b) => new Date(a.date) - new Date(b.date));
                 const stockTimeline = {};
                 let runningTotal = 0;
-
                 sortedHistory.forEach(h => {
                     const dateKey = new Date(h.date).toLocaleDateString('pt-BR');
                     if(h.type === 'ENTRADA') runningTotal += h.qty;
                     else runningTotal -= h.qty;
                     stockTimeline[dateKey] = runningTotal;
                 });
-
                 if (sortedHistory.length === 0 && items.length > 0) {
                     const today = new Date().toLocaleDateString('pt-BR');
                     stockTimeline[today] = items.reduce((acc, i) => acc + i.quantity, 0);
                 }
 
+                // 3. Dados Motivos (Estoque Atual)
+                const reasonCounts = {};
+                items.forEach(i => {
+                    const r = i.reason || 'Não especificado';
+                    reasonCounts[r] = (reasonCounts[r] || 0) + i.quantity;
+                });
+
+                // 4. Dados Destinos (Histórico de Saídas)
+                const destinationCounts = {};
+                history.filter(h => h.type === 'SAÍDA').forEach(h => {
+                    const d = h.detail || 'Não especificado';
+                    destinationCounts[d] = (destinationCounts[d] || 0) + h.qty;
+                });
+
+                // Cleanup
                 if (chartInstance1.current) chartInstance1.current.destroy();
                 if (chartInstance2.current) chartInstance2.current.destroy();
+                if (chartInstance3.current) chartInstance3.current.destroy();
+                if (chartInstance4.current) chartInstance4.current.destroy();
 
+                // Render Chart 1
                 chartInstance1.current = new Chart(chart1Ref.current, {
                     type: 'doughnut',
                     data: {
                         labels: Object.keys(sectorCounts),
-                        datasets: [{
-                            data: Object.values(sectorCounts),
-                            backgroundColor: ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#6366f1']
-                        }]
+                        datasets: [{ data: Object.values(sectorCounts), backgroundColor: ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#6366f1'] }]
                     },
                     options: { responsive: false, animation: false, devicePixelRatio: 2 }
                 });
 
+                // Render Chart 2
                 chartInstance2.current = new Chart(chart2Ref.current, {
                     type: 'line',
                     data: {
                         labels: Object.keys(stockTimeline),
-                        datasets: [{
-                            label: 'Volume de Estoque',
-                            data: Object.values(stockTimeline),
-                            borderColor: '#10b981',
-                            backgroundColor: 'rgba(16, 185, 129, 0.1)',
-                            fill: true,
-                            tension: 0.3,
-                            pointRadius: 3
-                        }]
+                        datasets: [{ label: 'Volume', data: Object.values(stockTimeline), borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.1)', fill: true, tension: 0.3 }]
                     },
-                    options: { 
-                        responsive: false, 
-                        animation: false, 
-                        devicePixelRatio: 2,
-                        scales: { y: { beginAtZero: true } }
-                    }
+                    options: { responsive: false, animation: false, devicePixelRatio: 2 }
+                });
+
+                // Render Chart 3 (Motivos)
+                chartInstance3.current = new Chart(chart3Ref.current, {
+                    type: 'bar',
+                    data: {
+                        labels: Object.keys(reasonCounts),
+                        datasets: [{ label: 'Qtd em Estoque', data: Object.values(reasonCounts), backgroundColor: '#f97316' }]
+                    },
+                    options: { responsive: false, animation: false, devicePixelRatio: 2, indexAxis: 'y' }
+                });
+
+                // Render Chart 4 (Destinos)
+                chartInstance4.current = new Chart(chart4Ref.current, {
+                    type: 'doughnut',
+                    data: {
+                        labels: Object.keys(destinationCounts),
+                        datasets: [{ data: Object.values(destinationCounts), backgroundColor: ['#8b5cf6', '#ec4899', '#6366f1', '#14b8a6'] }]
+                    },
+                    options: { responsive: false, animation: false, devicePixelRatio: 2 }
                 });
 
             }, [items, history]);
@@ -142,6 +191,8 @@
                 <div className="offscreen-render">
                     <canvas ref={chart1Ref} id="pdf-chart-1" width="500" height="400"></canvas>
                     <canvas ref={chart2Ref} id="pdf-chart-2" width="800" height="400"></canvas>
+                    <canvas ref={chart3Ref} id="pdf-chart-3" width="500" height="400"></canvas>
+                    <canvas ref={chart4Ref} id="pdf-chart-4" width="500" height="400"></canvas>
                 </div>
             );
         };
@@ -159,8 +210,8 @@
             const [companyLogo, setCompanyLogo] = useState(null);
             
             // Estado de UI
-            const [expandedGroups, setExpandedGroups] = useState({}); // Para expandir os grupos na tabela
-            const [nameSuggestions, setNameSuggestions] = useState([]); // Sugestões de nomes
+            const [expandedGroups, setExpandedGroups] = useState({}); 
+            const [nameSuggestions, setNameSuggestions] = useState([]); 
 
             // Formulários e Modais
             const [showModal, setShowModal] = useState(false);
@@ -171,10 +222,15 @@
                 name: '', sector: '', quantity: 0, expiry: '', reason: '', destination: ''
             });
 
+            // Refs Gráficos Visíveis
             const visibleChart1Ref = useRef(null);
             const visibleChart2Ref = useRef(null);
+            const visibleChart3Ref = useRef(null);
+            const visibleChart4Ref = useRef(null);
             const visibleChartInstance1 = useRef(null);
             const visibleChartInstance2 = useRef(null);
+            const visibleChartInstance3 = useRef(null);
+            const visibleChartInstance4 = useRef(null);
 
             // Carregar dados iniciais
             useEffect(() => {
@@ -220,31 +276,22 @@
                 setExpandedGroups(prev => ({ ...prev, [name]: !prev[name] }));
             };
 
-            // --- Lógica de Sugestão de Nomes ---
             const updateSuggestions = (inputValue) => {
-                if (!inputValue) {
-                    setNameSuggestions([]);
-                    return;
-                }
+                if (!inputValue) { setNameSuggestions([]); return; }
                 const value = inputValue.toLowerCase();
-                // Pega todos os nomes únicos que já existem
                 const uniqueNames = [...new Set(items.map(i => i.name))];
-                // Filtra os que contém o texto digitado
-                const suggestions = uniqueNames.filter(name => 
-                    name.toLowerCase().includes(value)
-                );
+                const suggestions = uniqueNames.filter(name => name.toLowerCase().includes(value));
                 setNameSuggestions(suggestions);
             };
 
             const selectSuggestion = (name) => {
-                // Ao selecionar, preenche o formulário e tenta achar o setor usado anteriormente
                 const existingItem = items.find(i => i.name === name);
                 setFormData(prev => ({
                     ...prev,
                     name: name,
                     sector: existingItem ? existingItem.sector : prev.sector
                 }));
-                setNameSuggestions([]); // Esconde sugestões
+                setNameSuggestions([]); 
             };
 
 
@@ -281,30 +328,19 @@
             };
 
             const handleEditItem = () => {
-                // Validação básica
                 if (!formData.name || formData.quantity <= 0) return alert("Dados inválidos. Verifique o nome e quantidade.");
-
                 const updatedItems = items.map(item => {
                     if (item.id === selectedItem.id) {
-                        return {
-                            ...item,
-                            name: formData.name,
-                            sector: formData.sector,
-                            quantity: Number(formData.quantity),
-                            expiry: formData.expiry,
-                            reason: formData.reason // Atualiza o motivo se for corrigido
-                        };
+                        return { ...item, name: formData.name, sector: formData.sector, quantity: Number(formData.quantity), expiry: formData.expiry, reason: formData.reason };
                     }
                     return item;
                 });
-                
                 setItems(updatedItems);
                 closeModal();
             };
 
             const handleMovement = () => {
                 if (!selectedItem) return;
-
                 const qty = Number(formData.quantity);
                 if (qty <= 0) return alert("A quantidade deve ser maior que zero.");
 
@@ -358,7 +394,7 @@
                 setFormData({ 
                     name: item ? item.name : '', 
                     sector: item ? item.sector : sectors[0], 
-                    quantity: type === 'EDIT' ? item.quantity : 1, // Se for edição, mostra quantidade atual
+                    quantity: type === 'EDIT' ? item.quantity : 1, 
                     expiry: item ? item.expiry : '',
                     reason: item ? (item.reason || reasons[0]) : reasons[0], 
                     destination: destinations[0]
@@ -398,9 +434,7 @@
             const handleLogoUpload = (e) => {
                 const file = e.target.files[0];
                 const reader = new FileReader();
-                reader.onloadend = () => {
-                    setCompanyLogo(reader.result);
-                };
+                reader.onloadend = () => { setCompanyLogo(reader.result); };
                 if (file) reader.readAsDataURL(file);
             };
 
@@ -411,11 +445,11 @@
                     Produto: i.name, 
                     Setor: i.sector, 
                     Qtd: i.quantity, 
-                    Validade: i.expiry,
-                    Motivo: i.reason || 'N/A'
+                    Validade: i.expiry, 
+                    "Validade Formatada": formatDate(i.expiry), // Adicionado para clareza
+                    Motivo: i.reason || 'N/A' 
                 })));
                 XLSX.utils.book_append_sheet(wb, wsItems, "Estoque Detalhado");
-                
                 const wsHistory = XLSX.utils.json_to_sheet(history.map(h => ({ Data: new Date(h.date).toLocaleString(), Tipo: h.type, Produto: h.itemName, Setor: h.sector, Qtd: h.qty, "Motivo/Destino": h.detail })));
                 XLSX.utils.book_append_sheet(wb, wsHistory, "Movimentações");
                 XLSX.writeFile(wb, "relatorio_avaria.xlsx");
@@ -434,37 +468,47 @@
 
                 let yPos = 50;
 
-                const canvas1 = document.getElementById('pdf-chart-1');
-                const canvas2 = document.getElementById('pdf-chart-2');
+                // Captura Gráficos
+                const c1 = document.getElementById('pdf-chart-1');
+                const c2 = document.getElementById('pdf-chart-2');
+                const c3 = document.getElementById('pdf-chart-3');
+                const c4 = document.getElementById('pdf-chart-4');
                 
-                if (canvas1 && canvas2) {
-                    doc.setFontSize(14);
-                    doc.text("Análise Gráfica", 14, yPos);
-                    yPos += 10;
-                    try {
-                        const imgData1 = canvas1.toDataURL("image/png");
-                        const imgData2 = canvas2.toDataURL("image/png");
-                        doc.addImage(imgData1, 'PNG', 15, yPos, 70, 60);
-                        doc.addImage(imgData2, 'PNG', 90, yPos, 100, 60);
-                        yPos += 70;
-                    } catch (e) { console.error(e); }
-                }
+                doc.setFontSize(14);
+                doc.text("Análise de Estoque e Fluxo", 14, yPos);
+                yPos += 10;
 
+                try {
+                    if(c1 && c2) {
+                        doc.addImage(c1.toDataURL("image/png"), 'PNG', 15, yPos, 70, 60);
+                        doc.addImage(c2.toDataURL("image/png"), 'PNG', 90, yPos, 100, 60);
+                        yPos += 65;
+                    }
+                    if(c3 && c4) {
+                        if(yPos > 230) { doc.addPage(); yPos = 20; }
+                        doc.text("Análise de Causas e Destinos", 14, yPos);
+                        yPos += 10;
+                        doc.addImage(c3.toDataURL("image/png"), 'PNG', 15, yPos, 80, 60);
+                        doc.addImage(c4.toDataURL("image/png"), 'PNG', 105, yPos, 80, 60);
+                        yPos += 70;
+                    }
+                } catch (e) { console.error(e); }
+
+                if(yPos > 250) { doc.addPage(); yPos = 20; }
                 doc.setFontSize(14);
                 doc.text("Estoque Atual (Agrupado)", 14, yPos);
                 yPos += 5;
-                
                 const tableColumn = ["Produto", "Setor", "Motivo Entrada", "Qtd", "Validade"];
-                const tableRows = items.map(item => [item.name, item.sector, item.reason || '-', item.quantity, item.expiry]);
-
+                // Correção no PDF também para usar a função formatDate
+                const tableRows = items.map(item => [item.name, item.sector, item.reason || '-', item.quantity, formatDate(item.expiry)]);
                 doc.autoTable({ head: [tableColumn], body: tableRows, startY: yPos, theme: 'grid' });
 
                 doc.addPage();
                 doc.text("Histórico Recente de Movimentações", 14, 20);
                 const histColumn = ["Data", "Tipo", "Produto", "Qtd", "Motivo/Destino"];
                 const histRows = history.slice(0, 100).map(h => [new Date(h.date).toLocaleDateString(), h.type, h.itemName, h.qty, h.detail]);
-
                 doc.autoTable({ head: [histColumn], body: histRows, startY: 25, theme: 'striped', styles: { fontSize: 8 } });
+                
                 doc.save("relatorio_avaria_completo.pdf");
             };
 
@@ -472,13 +516,14 @@
             // --- Renderização de Gráficos Visíveis (Dashboard) ---
             useEffect(() => {
                 if (activeTab === 'dashboard') {
+                    // 1. Dados Setores
                     const sectorCounts = {};
                     items.forEach(i => { sectorCounts[i.sector] = (sectorCounts[i.sector] || 0) + i.quantity; });
 
+                    // 2. Dados Timeline
                     const sortedHistory = [...history].sort((a,b) => new Date(a.date) - new Date(b.date));
                     const stockTimeline = {};
                     let runningTotal = 0;
-                    
                     if (sortedHistory.length > 0) {
                          sortedHistory.forEach(h => {
                             const dateKey = new Date(h.date).toLocaleDateString('pt-BR');
@@ -490,46 +535,67 @@
                          stockTimeline[new Date().toLocaleDateString('pt-BR')] = items.reduce((acc, i) => acc + i.quantity, 0);
                     }
 
+                    // 3. Dados Motivos (Estoque Atual)
+                    const reasonCounts = {};
+                    items.forEach(i => {
+                        const r = i.reason || 'Não especificado';
+                        reasonCounts[r] = (reasonCounts[r] || 0) + i.quantity;
+                    });
+
+                    // 4. Dados Destinos (Histórico de Saídas)
+                    const destinationCounts = {};
+                    history.filter(h => h.type === 'SAÍDA').forEach(h => {
+                        const d = h.detail || 'Não especificado';
+                        destinationCounts[d] = (destinationCounts[d] || 0) + h.qty;
+                    });
+
+                    // Destroy old
                     if (visibleChartInstance1.current) visibleChartInstance1.current.destroy();
                     if (visibleChartInstance2.current) visibleChartInstance2.current.destroy();
+                    if (visibleChartInstance3.current) visibleChartInstance3.current.destroy();
+                    if (visibleChartInstance4.current) visibleChartInstance4.current.destroy();
 
-                    const ctx1 = visibleChart1Ref.current.getContext('2d');
-                    visibleChartInstance1.current = new Chart(ctx1, {
+                    // Create new
+                    visibleChartInstance1.current = new Chart(visibleChart1Ref.current.getContext('2d'), {
                         type: 'doughnut',
                         data: {
                             labels: Object.keys(sectorCounts),
-                            datasets: [{
-                                data: Object.values(sectorCounts),
-                                backgroundColor: ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#6366f1']
-                            }]
+                            datasets: [{ data: Object.values(sectorCounts), backgroundColor: ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#6366f1'] }]
                         },
-                        options: { responsive: true, plugins: { title: { display: true, text: 'Estoque por Setor' } } }
+                        options: { responsive: true, plugins: { title: { display: true, text: 'Por Setor' } } }
                     });
 
-                    const ctx2 = visibleChart2Ref.current.getContext('2d');
-                    visibleChartInstance2.current = new Chart(ctx2, {
+                    visibleChartInstance2.current = new Chart(visibleChart2Ref.current.getContext('2d'), {
                         type: 'line',
                         data: {
                             labels: Object.keys(stockTimeline),
                             datasets: [{
-                                label: 'Volume Total em Estoque',
-                                data: Object.values(stockTimeline),
-                                borderColor: '#10b981',
-                                backgroundColor: 'rgba(16, 185, 129, 0.1)',
-                                fill: true,
-                                tension: 0.3,
-                                pointRadius: 4,
-                                pointHoverRadius: 6
+                                label: 'Estoque', data: Object.values(stockTimeline), borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.1)', fill: true, tension: 0.3
                             }]
+                        },
+                        options: { responsive: true, plugins: { title: { display: true, text: 'Evolução Diária' } }, scales: { y: { beginAtZero: true } } }
+                    });
+
+                    visibleChartInstance3.current = new Chart(visibleChart3Ref.current.getContext('2d'), {
+                        type: 'bar',
+                        data: {
+                            labels: Object.keys(reasonCounts),
+                            datasets: [{ label: 'Qtd Itens', data: Object.values(reasonCounts), backgroundColor: '#f97316' }]
                         },
                         options: { 
                             responsive: true, 
-                            plugins: { 
-                                title: { display: true, text: 'Evolução do Estoque (Diário)' },
-                                tooltip: { mode: 'index', intersect: false }
-                            },
-                            scales: { y: { beginAtZero: true } }
+                            indexAxis: 'y', // Barra Horizontal
+                            plugins: { title: { display: true, text: 'Motivos de Entrada (Estoque Atual)' }, legend: { display: false } } 
                         }
+                    });
+
+                    visibleChartInstance4.current = new Chart(visibleChart4Ref.current.getContext('2d'), {
+                        type: 'doughnut',
+                        data: {
+                            labels: Object.keys(destinationCounts),
+                            datasets: [{ data: Object.values(destinationCounts), backgroundColor: ['#8b5cf6', '#ec4899', '#6366f1', '#14b8a6'] }]
+                        },
+                        options: { responsive: true, plugins: { title: { display: true, text: 'Destinos de Saída (Histórico)' } } }
                     });
                 }
             }, [activeTab, items, history]);
@@ -593,6 +659,16 @@
                         </div>
                         <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 h-80 flex justify-center items-center">
                             <canvas id="chartMovement" ref={visibleChart2Ref}></canvas>
+                        </div>
+                    </div>
+
+                    {/* Novos Gráficos: Motivos e Destinos */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 h-80 flex justify-center items-center">
+                            <canvas id="chartReason" ref={visibleChart3Ref}></canvas>
+                        </div>
+                        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 h-80 flex justify-center items-center">
+                            <canvas id="chartDestination" ref={visibleChart4Ref}></canvas>
                         </div>
                     </div>
 
@@ -660,9 +736,10 @@
                                                                             <tr key={batch.id}>
                                                                                 <td className="p-3 font-medium text-gray-800">{batch.reason || 'Não informado'}</td>
                                                                                 <td className="p-3">
-                                                                                     <span className={new Date(batch.expiry) < new Date() ? 'text-red-500 font-bold flex items-center gap-1' : ''}>
-                                                                                        {batch.expiry ? new Date(batch.expiry).toLocaleDateString('pt-BR') : 'N/A'}
-                                                                                        {new Date(batch.expiry) < new Date() && <AlertTriangle size={12}/>}
+                                                                                     {/* Correção do display de data e lógica de vencimento */}
+                                                                                     <span className={isExpired(batch.expiry) ? 'text-red-500 font-bold flex items-center gap-1' : ''}>
+                                                                                        {formatDate(batch.expiry)}
+                                                                                        {isExpired(batch.expiry) && <AlertTriangle size={12}/>}
                                                                                     </span>
                                                                                 </td>
                                                                                 <td className="p-3 text-center font-bold text-sm">{batch.quantity}</td>
@@ -814,7 +891,7 @@
                             </button>
                         </nav>
                         <div className="p-4 border-t border-gray-100 text-xs text-center text-gray-400">
-                            v1.4.1 - Sistema Local
+                            v1.6.0 - Sistema Local
                         </div>
                     </aside>
 
