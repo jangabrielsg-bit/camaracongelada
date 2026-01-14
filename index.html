@@ -1,0 +1,918 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SCA - Sistema de Câmara de Avaria</title>
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Libraries for Charts, PDF, Excel -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.29/jspdf.plugin.autotable.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
+        .glass-panel { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); border: 1px solid rgba(229, 231, 235, 0.5); }
+        /* Utilitário para esconder elementos visualmente mas mantê-los no DOM para o PDF */
+        .offscreen-render { position: absolute; left: -9999px; top: -9999px; visibility: hidden; }
+        .fade-in { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef, useMemo } = React;
+
+        // --- Ícones SVG Nativos ---
+        const IconBase = ({ children, size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                {children}
+            </svg>
+        );
+
+        const Icons = {
+            LayoutDashboard: (props) => <IconBase {...props}><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></IconBase>,
+            Package: (props) => <IconBase {...props}><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22v-9"/></IconBase>,
+            ArrowRightLeft: (props) => <IconBase {...props}><path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/></IconBase>,
+            Settings: (props) => <IconBase {...props}><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.47a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.39a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></IconBase>,
+            Download: (props) => <IconBase {...props}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></IconBase>,
+            Upload: (props) => <IconBase {...props}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></IconBase>,
+            FileSpreadsheet: (props) => <IconBase {...props}><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M8 13h2"/><path d="M14 13h2"/><path d="M8 17h2"/><path d="M14 17h2"/></IconBase>,
+            FileText: (props) => <IconBase {...props}><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></IconBase>,
+            Plus: (props) => <IconBase {...props}><path d="M5 12h14"/><path d="M12 5v14"/></IconBase>,
+            Minus: (props) => <IconBase {...props}><path d="M5 12h14"/></IconBase>,
+            Trash2: (props) => <IconBase {...props}><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></IconBase>,
+            Search: (props) => <IconBase {...props}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></IconBase>,
+            AlertTriangle: (props) => <IconBase {...props}><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></IconBase>,
+            Building2: (props) => <IconBase {...props}><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/></IconBase>,
+            TrendingUp: (props) => <IconBase {...props}><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></IconBase>,
+            ChevronDown: (props) => <IconBase {...props}><path d="m6 9 6 6 6-6"/></IconBase>,
+            ChevronRight: (props) => <IconBase {...props}><path d="m9 18 6-6-6-6"/></IconBase>
+        };
+
+        const { 
+            LayoutDashboard, Package, ArrowRightLeft, Settings, 
+            Download, Upload, FileSpreadsheet, FileText, 
+            Plus, Minus, Trash2, Search, AlertTriangle, Building2, TrendingUp,
+            ChevronDown, ChevronRight
+        } = Icons;
+
+        // --- Componente Auxiliar: Renderizador de Gráficos Offscreen para PDF ---
+        const OffscreenCharts = ({ items, history, onChartReady }) => {
+            const chart1Ref = useRef(null);
+            const chart2Ref = useRef(null);
+            const chartInstance1 = useRef(null);
+            const chartInstance2 = useRef(null);
+
+            useEffect(() => {
+                const sectorCounts = {};
+                items.forEach(i => { sectorCounts[i.sector] = (sectorCounts[i.sector] || 0) + i.quantity; });
+                
+                const sortedHistory = [...history].sort((a,b) => new Date(a.date) - new Date(b.date));
+                const stockTimeline = {};
+                let runningTotal = 0;
+
+                sortedHistory.forEach(h => {
+                    const dateKey = new Date(h.date).toLocaleDateString('pt-BR');
+                    if(h.type === 'ENTRADA') runningTotal += h.qty;
+                    else runningTotal -= h.qty;
+                    stockTimeline[dateKey] = runningTotal;
+                });
+
+                if (sortedHistory.length === 0 && items.length > 0) {
+                    const today = new Date().toLocaleDateString('pt-BR');
+                    stockTimeline[today] = items.reduce((acc, i) => acc + i.quantity, 0);
+                }
+
+                if (chartInstance1.current) chartInstance1.current.destroy();
+                if (chartInstance2.current) chartInstance2.current.destroy();
+
+                chartInstance1.current = new Chart(chart1Ref.current, {
+                    type: 'doughnut',
+                    data: {
+                        labels: Object.keys(sectorCounts),
+                        datasets: [{
+                            data: Object.values(sectorCounts),
+                            backgroundColor: ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#6366f1']
+                        }]
+                    },
+                    options: { responsive: false, animation: false, devicePixelRatio: 2 }
+                });
+
+                chartInstance2.current = new Chart(chart2Ref.current, {
+                    type: 'line',
+                    data: {
+                        labels: Object.keys(stockTimeline),
+                        datasets: [{
+                            label: 'Volume de Estoque',
+                            data: Object.values(stockTimeline),
+                            borderColor: '#10b981',
+                            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                            fill: true,
+                            tension: 0.3,
+                            pointRadius: 3
+                        }]
+                    },
+                    options: { 
+                        responsive: false, 
+                        animation: false, 
+                        devicePixelRatio: 2,
+                        scales: { y: { beginAtZero: true } }
+                    }
+                });
+
+            }, [items, history]);
+
+            return (
+                <div className="offscreen-render">
+                    <canvas ref={chart1Ref} id="pdf-chart-1" width="500" height="400"></canvas>
+                    <canvas ref={chart2Ref} id="pdf-chart-2" width="800" height="400"></canvas>
+                </div>
+            );
+        };
+
+        // --- Componente Principal ---
+        const App = () => {
+            const [activeTab, setActiveTab] = useState('dashboard');
+            
+            // Dados
+            const [items, setItems] = useState([]);
+            const [history, setHistory] = useState([]);
+            const [sectors, setSectors] = useState(['Geral', 'Perecíveis', 'Secos', 'Bebidas', 'Hortifruti', 'Limpeza']);
+            const [reasons, setReasons] = useState(['Avaria de Transporte', 'Vencido', 'Embalagem Danificada', 'Qualidade Duvidosa', 'Devolução Cliente', 'Outros']);
+            const [destinations, setDestinations] = useState(['Descarte (Lixo)', 'Devolução Fornecedor', 'Doação', 'Recuperado (Venda)']);
+            const [companyLogo, setCompanyLogo] = useState(null);
+            
+            // Estado de UI
+            const [expandedGroups, setExpandedGroups] = useState({}); // Para expandir os grupos na tabela
+            const [nameSuggestions, setNameSuggestions] = useState([]); // Sugestões de nomes
+
+            // Formulários e Modais
+            const [showModal, setShowModal] = useState(false);
+            const [modalType, setModalType] = useState('ADD'); 
+            const [selectedItem, setSelectedItem] = useState(null);
+            
+            const [formData, setFormData] = useState({
+                name: '', sector: '', quantity: 0, expiry: '', reason: '', destination: ''
+            });
+
+            const visibleChart1Ref = useRef(null);
+            const visibleChart2Ref = useRef(null);
+            const visibleChartInstance1 = useRef(null);
+            const visibleChartInstance2 = useRef(null);
+
+            // Carregar dados iniciais
+            useEffect(() => {
+                const savedData = localStorage.getItem('avariaData');
+                if (savedData) {
+                    const parsed = JSON.parse(savedData);
+                    setItems(parsed.items || []);
+                    setHistory(parsed.history || []);
+                    setSectors(parsed.sectors || ['Geral']);
+                    setReasons(parsed.reasons || ['Avaria de Transporte', 'Vencido']);
+                    setDestinations(parsed.destinations || ['Descarte']);
+                    setCompanyLogo(parsed.logo || null);
+                }
+            }, []);
+
+            // Salvar dados automaticamente
+            useEffect(() => {
+                const dataToSave = { items, history, sectors, reasons, destinations, logo: companyLogo };
+                localStorage.setItem('avariaData', JSON.stringify(dataToSave));
+            }, [items, history, sectors, reasons, destinations, companyLogo]);
+
+            // --- Lógica de Agrupamento ---
+            const groupedItems = useMemo(() => {
+                const groups = {};
+                items.forEach(item => {
+                    const normalizedName = item.name.trim();
+                    const key = normalizedName.toLowerCase(); 
+                    if (!groups[key]) {
+                        groups[key] = {
+                            name: normalizedName, 
+                            sector: item.sector,
+                            totalQty: 0,
+                            batches: []
+                        };
+                    }
+                    groups[key].totalQty += item.quantity;
+                    groups[key].batches.push(item);
+                });
+                return Object.values(groups);
+            }, [items]);
+
+            const toggleGroup = (name) => {
+                setExpandedGroups(prev => ({ ...prev, [name]: !prev[name] }));
+            };
+
+            // --- Lógica de Sugestão de Nomes ---
+            const updateSuggestions = (inputValue) => {
+                if (!inputValue) {
+                    setNameSuggestions([]);
+                    return;
+                }
+                const value = inputValue.toLowerCase();
+                // Pega todos os nomes únicos que já existem
+                const uniqueNames = [...new Set(items.map(i => i.name))];
+                // Filtra os que contém o texto digitado
+                const suggestions = uniqueNames.filter(name => 
+                    name.toLowerCase().includes(value)
+                );
+                setNameSuggestions(suggestions);
+            };
+
+            const selectSuggestion = (name) => {
+                // Ao selecionar, preenche o formulário e tenta achar o setor usado anteriormente
+                const existingItem = items.find(i => i.name === name);
+                setFormData(prev => ({
+                    ...prev,
+                    name: name,
+                    sector: existingItem ? existingItem.sector : prev.sector
+                }));
+                setNameSuggestions([]); // Esconde sugestões
+            };
+
+
+            // --- Lógica de Negócio ---
+
+            const handleAddItem = () => {
+                const existingItem = items.find(i => i.name.trim().toLowerCase() === formData.name.trim().toLowerCase());
+                const finalName = existingItem ? existingItem.name : formData.name;
+
+                const newItem = {
+                    id: Date.now(),
+                    name: finalName, 
+                    sector: formData.sector || sectors[0],
+                    quantity: Number(formData.quantity),
+                    expiry: formData.expiry,
+                    reason: formData.reason || reasons[0],
+                    entryDate: new Date().toISOString()
+                };
+                
+                setItems([...items, newItem]);
+                
+                const newLog = {
+                    id: Date.now() + 1,
+                    date: new Date().toISOString(),
+                    type: 'ENTRADA',
+                    itemId: newItem.id,
+                    itemName: newItem.name,
+                    sector: newItem.sector,
+                    qty: Number(formData.quantity),
+                    detail: formData.reason || reasons[0]
+                };
+                setHistory([newLog, ...history]);
+                closeModal();
+            };
+
+            const handleMovement = () => {
+                if (!selectedItem) return;
+
+                const qty = Number(formData.quantity);
+                if (qty <= 0) return alert("A quantidade deve ser maior que zero.");
+
+                let updatedItems = items.map(item => {
+                    if (item.id === selectedItem.id) {
+                        if (modalType === 'EXIT' && item.quantity < qty) {
+                            alert("Estoque insuficiente neste lote.");
+                            return item; 
+                        }
+                        const newQty = modalType === 'ENTRY' ? item.quantity + qty : item.quantity - qty;
+                        return { ...item, quantity: newQty };
+                    }
+                    return item;
+                });
+
+                const currentItem = updatedItems.find(i => i.id === selectedItem.id);
+                if (modalType === 'EXIT' && currentItem.quantity === selectedItem.quantity) return;
+
+                setItems(updatedItems);
+
+                const newLog = {
+                    id: Date.now(),
+                    date: new Date().toISOString(),
+                    type: modalType === 'ENTRY' ? 'ENTRADA' : 'SAÍDA',
+                    itemId: selectedItem.id,
+                    itemName: selectedItem.name,
+                    sector: selectedItem.sector,
+                    qty: qty,
+                    detail: modalType === 'ENTRY' ? (formData.reason || reasons[0]) : (formData.destination || destinations[0])
+                };
+                setHistory([newLog, ...history]);
+                closeModal();
+            };
+
+            const deleteItem = (id) => {
+                if(confirm('Tem certeza que deseja excluir este item/lote e todo seu histórico?')) {
+                    setItems(items.filter(i => i.id !== id));
+                }
+            };
+
+            const closeModal = () => {
+                setShowModal(false);
+                setSelectedItem(null);
+                setFormData({ name: '', sector: sectors[0], quantity: 0, expiry: '', reason: reasons[0], destination: destinations[0] });
+                setNameSuggestions([]);
+            };
+
+            const openModal = (type, item = null) => {
+                setModalType(type);
+                setSelectedItem(item);
+                setFormData({ 
+                    name: item ? item.name : '', 
+                    sector: item ? item.sector : sectors[0], 
+                    quantity: 1, 
+                    expiry: item ? item.expiry : '',
+                    reason: item ? (item.reason || reasons[0]) : reasons[0], 
+                    destination: destinations[0]
+                });
+                setShowModal(true);
+            };
+
+            // --- Exportações ---
+
+            const exportJSON = () => {
+                const dataStr = JSON.stringify({ items, history, sectors, reasons, destinations, logo: companyLogo });
+                const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+                const exportFileDefaultName = `backup_avaria_${new Date().toLocaleDateString().replace(/\//g, '-')}.json`;
+                const linkElement = document.createElement('a');
+                linkElement.setAttribute('href', dataUri);
+                linkElement.setAttribute('download', exportFileDefaultName);
+                linkElement.click();
+            };
+
+            const importJSON = (event) => {
+                const fileReader = new FileReader();
+                fileReader.readAsText(event.target.files[0], "UTF-8");
+                fileReader.onload = e => {
+                    const parsed = JSON.parse(e.target.result);
+                    if(confirm("Isso substituirá todos os dados atuais. Deseja continuar?")) {
+                        setItems(parsed.items || []);
+                        setHistory(parsed.history || []);
+                        setSectors(parsed.sectors || ['Geral']);
+                        setReasons(parsed.reasons || ['Avaria de Transporte']);
+                        setDestinations(parsed.destinations || ['Descarte']);
+                        setCompanyLogo(parsed.logo || null);
+                        alert("Dados restaurados com sucesso!");
+                    }
+                };
+            };
+
+            const handleLogoUpload = (e) => {
+                const file = e.target.files[0];
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                    setCompanyLogo(reader.result);
+                };
+                if (file) reader.readAsDataURL(file);
+            };
+
+            const exportExcel = () => {
+                const wb = XLSX.utils.book_new();
+                const wsItems = XLSX.utils.json_to_sheet(items.map(i => ({ 
+                    ID: i.id, 
+                    Produto: i.name, 
+                    Setor: i.sector, 
+                    Qtd: i.quantity, 
+                    Validade: i.expiry,
+                    Motivo: i.reason || 'N/A'
+                })));
+                XLSX.utils.book_append_sheet(wb, wsItems, "Estoque Detalhado");
+                
+                const wsHistory = XLSX.utils.json_to_sheet(history.map(h => ({ Data: new Date(h.date).toLocaleString(), Tipo: h.type, Produto: h.itemName, Setor: h.sector, Qtd: h.qty, "Motivo/Destino": h.detail })));
+                XLSX.utils.book_append_sheet(wb, wsHistory, "Movimentações");
+                XLSX.writeFile(wb, "relatorio_avaria.xlsx");
+            };
+
+            const exportPDF = () => {
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF();
+
+                if (companyLogo) { doc.addImage(companyLogo, 'PNG', 15, 10, 25, 25); }
+                doc.setFontSize(20);
+                doc.text("Relatório de Câmara de Avaria", 50, 20);
+                doc.setFontSize(10);
+                doc.text(`Gerado em: ${new Date().toLocaleString()}`, 50, 28);
+                doc.text('"Não se gerencia o que não se mede."', 50, 34);
+
+                let yPos = 50;
+
+                const canvas1 = document.getElementById('pdf-chart-1');
+                const canvas2 = document.getElementById('pdf-chart-2');
+                
+                if (canvas1 && canvas2) {
+                    doc.setFontSize(14);
+                    doc.text("Análise Gráfica", 14, yPos);
+                    yPos += 10;
+                    try {
+                        const imgData1 = canvas1.toDataURL("image/png");
+                        const imgData2 = canvas2.toDataURL("image/png");
+                        doc.addImage(imgData1, 'PNG', 15, yPos, 70, 60);
+                        doc.addImage(imgData2, 'PNG', 90, yPos, 100, 60);
+                        yPos += 70;
+                    } catch (e) { console.error(e); }
+                }
+
+                doc.setFontSize(14);
+                doc.text("Estoque Atual (Agrupado)", 14, yPos);
+                yPos += 5;
+                
+                const tableColumn = ["Produto", "Setor", "Motivo Entrada", "Qtd", "Validade"];
+                const tableRows = items.map(item => [item.name, item.sector, item.reason || '-', item.quantity, item.expiry]);
+
+                doc.autoTable({ head: [tableColumn], body: tableRows, startY: yPos, theme: 'grid' });
+
+                doc.addPage();
+                doc.text("Histórico Recente de Movimentações", 14, 20);
+                const histColumn = ["Data", "Tipo", "Produto", "Qtd", "Motivo/Destino"];
+                const histRows = history.slice(0, 100).map(h => [new Date(h.date).toLocaleDateString(), h.type, h.itemName, h.qty, h.detail]);
+
+                doc.autoTable({ head: [histColumn], body: histRows, startY: 25, theme: 'striped', styles: { fontSize: 8 } });
+                doc.save("relatorio_avaria_completo.pdf");
+            };
+
+
+            // --- Renderização de Gráficos Visíveis (Dashboard) ---
+            useEffect(() => {
+                if (activeTab === 'dashboard') {
+                    const sectorCounts = {};
+                    items.forEach(i => { sectorCounts[i.sector] = (sectorCounts[i.sector] || 0) + i.quantity; });
+
+                    const sortedHistory = [...history].sort((a,b) => new Date(a.date) - new Date(b.date));
+                    const stockTimeline = {};
+                    let runningTotal = 0;
+                    
+                    if (sortedHistory.length > 0) {
+                         sortedHistory.forEach(h => {
+                            const dateKey = new Date(h.date).toLocaleDateString('pt-BR');
+                            if(h.type === 'ENTRADA') runningTotal += h.qty;
+                            else runningTotal -= h.qty;
+                            stockTimeline[dateKey] = runningTotal;
+                        });
+                    } else if (items.length > 0) {
+                         stockTimeline[new Date().toLocaleDateString('pt-BR')] = items.reduce((acc, i) => acc + i.quantity, 0);
+                    }
+
+                    if (visibleChartInstance1.current) visibleChartInstance1.current.destroy();
+                    if (visibleChartInstance2.current) visibleChartInstance2.current.destroy();
+
+                    const ctx1 = visibleChart1Ref.current.getContext('2d');
+                    visibleChartInstance1.current = new Chart(ctx1, {
+                        type: 'doughnut',
+                        data: {
+                            labels: Object.keys(sectorCounts),
+                            datasets: [{
+                                data: Object.values(sectorCounts),
+                                backgroundColor: ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#6366f1']
+                            }]
+                        },
+                        options: { responsive: true, plugins: { title: { display: true, text: 'Estoque por Setor' } } }
+                    });
+
+                    const ctx2 = visibleChart2Ref.current.getContext('2d');
+                    visibleChartInstance2.current = new Chart(ctx2, {
+                        type: 'line',
+                        data: {
+                            labels: Object.keys(stockTimeline),
+                            datasets: [{
+                                label: 'Volume Total em Estoque',
+                                data: Object.values(stockTimeline),
+                                borderColor: '#10b981',
+                                backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                                fill: true,
+                                tension: 0.3,
+                                pointRadius: 4,
+                                pointHoverRadius: 6
+                            }]
+                        },
+                        options: { 
+                            responsive: true, 
+                            plugins: { 
+                                title: { display: true, text: 'Evolução do Estoque (Diário)' },
+                                tooltip: { mode: 'index', intersect: false }
+                            },
+                            scales: { y: { beginAtZero: true } }
+                        }
+                    });
+                }
+            }, [activeTab, items, history]);
+
+            const ListManager = ({ title, items, setItems, placeholder }) => (
+                <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                    <h3 className="font-semibold mb-4">{title}</h3>
+                    <div className="flex gap-2 mb-4">
+                        <input type="text" id={`new-${title}`} placeholder={placeholder} className="border rounded p-2 flex-1 text-sm"/>
+                        <button 
+                            onClick={() => {
+                                const el = document.getElementById(`new-${title}`);
+                                const val = el.value;
+                                if(val && !items.includes(val)) {
+                                    setItems([...items, val]);
+                                    el.value = '';
+                                }
+                            }}
+                            className="bg-blue-600 text-white px-4 py-2 rounded text-sm">Adicionar</button>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                        {items.map(item => (
+                            <span key={item} className="px-3 py-1 bg-gray-100 rounded-full text-sm flex items-center gap-2 group border">
+                                {item}
+                                <button onClick={() => setItems(items.filter(i => i !== item))} className="text-gray-400 hover:text-red-500">
+                                    <Trash2 size={12} className="hidden group-hover:block"/>
+                                    <Settings size={12} className="group-hover:hidden"/>
+                                </button>
+                            </span>
+                        ))}
+                    </div>
+                </div>
+            );
+
+
+            // --- Telas ---
+
+            const renderDashboard = () => (
+                <div className="space-y-6 animate-fade-in">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                            <h3 className="text-gray-500 text-sm font-medium">Itens em Avaria</h3>
+                            <p className="text-3xl font-bold text-red-600">{items.reduce((acc, i) => acc + i.quantity, 0)}</p>
+                        </div>
+                        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                            <h3 className="text-gray-500 text-sm font-medium">SKUs Cadastrados</h3>
+                            <p className="text-3xl font-bold text-gray-800">{items.length} <span className="text-sm font-normal text-gray-400">lotes</span></p>
+                        </div>
+                        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                            <h3 className="text-gray-500 text-sm font-medium">Última Movimentação</h3>
+                            <p className="text-lg font-bold text-blue-600 truncate">
+                                {history.length > 0 ? new Date(history[0].date).toLocaleDateString() : '-'}
+                            </p>
+                            <p className="text-xs text-gray-400">{history.length > 0 ? history[0].type : ''}</p>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 h-80 flex justify-center items-center">
+                            <canvas id="chartSector" ref={visibleChart1Ref}></canvas>
+                        </div>
+                        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 h-80 flex justify-center items-center">
+                            <canvas id="chartMovement" ref={visibleChart2Ref}></canvas>
+                        </div>
+                    </div>
+
+                     <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded text-blue-900 text-sm italic">
+                        "Não se gerencia o que não se mede, não se mede o que não se define, não se define o que não se entende e não há sucesso no que não se gerencia."
+                    </div>
+                </div>
+            );
+
+            const renderInventory = () => (
+                <div className="space-y-4">
+                    <div className="flex justify-between items-center">
+                        <h2 className="text-xl font-bold text-gray-800">Estoque Atual</h2>
+                        <button onClick={() => openModal('ADD')} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition shadow-md">
+                            <Plus size={18} /> Novo Item
+                        </button>
+                    </div>
+
+                    <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                        <div className="overflow-x-auto">
+                            {/* Tabela de Grupos */}
+                            <table className="w-full text-left text-sm text-gray-600">
+                                <thead className="bg-gray-50 text-gray-800 font-semibold uppercase tracking-wider text-xs border-b">
+                                    <tr>
+                                        <th className="p-4 w-10"></th>
+                                        <th className="p-4">Item (Agrupado)</th>
+                                        <th className="p-4">Setor</th>
+                                        <th className="p-4 text-center">Total Qtd</th>
+                                        <th className="p-4 text-center">Lotes</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                    {groupedItems.length === 0 ? (
+                                        <tr><td colSpan="5" className="p-8 text-center text-gray-400">Nenhum item na câmara de avaria.</td></tr>
+                                    ) : (
+                                        groupedItems.map(group => (
+                                            <React.Fragment key={group.name}>
+                                                {/* Linha Principal (Grupo) */}
+                                                <tr className={`hover:bg-gray-50 transition cursor-pointer ${expandedGroups[group.name] ? 'bg-blue-50/50' : ''}`} onClick={() => toggleGroup(group.name)}>
+                                                    <td className="p-4 text-center text-gray-400">
+                                                        {expandedGroups[group.name] ? <ChevronDown size={18}/> : <ChevronRight size={18}/>}
+                                                    </td>
+                                                    <td className="p-4 font-bold text-gray-900">{group.name}</td>
+                                                    <td className="p-4"><span className="px-2 py-1 rounded bg-gray-100 text-xs">{group.sector}</span></td>
+                                                    <td className="p-4 text-center text-lg font-bold text-blue-600">{group.totalQty}</td>
+                                                    <td className="p-4 text-center text-xs text-gray-400">{group.batches.length} lote(s)</td>
+                                                </tr>
+
+                                                {/* Detalhes (Lotes Individuais) */}
+                                                {expandedGroups[group.name] && (
+                                                    <tr>
+                                                        <td colSpan="5" className="p-0">
+                                                            <div className="bg-gray-50 p-4 shadow-inner">
+                                                                <table className="w-full text-xs text-gray-600 bg-white rounded border border-gray-200">
+                                                                    <thead className="bg-gray-100 text-gray-700">
+                                                                        <tr>
+                                                                            <th className="p-3 text-left">Motivo da Entrada</th>
+                                                                            <th className="p-3 text-left">Validade</th>
+                                                                            <th className="p-3 text-center">Qtd</th>
+                                                                            <th className="p-3 text-center">Ações</th>
+                                                                        </tr>
+                                                                    </thead>
+                                                                    <tbody className="divide-y divide-gray-100">
+                                                                        {group.batches.map(batch => (
+                                                                            <tr key={batch.id}>
+                                                                                <td className="p-3 font-medium text-gray-800">{batch.reason || 'Não informado'}</td>
+                                                                                <td className="p-3">
+                                                                                     <span className={new Date(batch.expiry) < new Date() ? 'text-red-500 font-bold flex items-center gap-1' : ''}>
+                                                                                        {batch.expiry ? new Date(batch.expiry).toLocaleDateString('pt-BR') : 'N/A'}
+                                                                                        {new Date(batch.expiry) < new Date() && <AlertTriangle size={12}/>}
+                                                                                    </span>
+                                                                                </td>
+                                                                                <td className="p-3 text-center font-bold text-sm">{batch.quantity}</td>
+                                                                                <td className="p-3 flex justify-center gap-2">
+                                                                                    <button onClick={(e) => {e.stopPropagation(); openModal('ENTRY', batch)}} className="p-1 text-green-600 hover:bg-green-50 rounded" title="Adicionar a este lote"><Plus size={16}/></button>
+                                                                                    <button onClick={(e) => {e.stopPropagation(); openModal('EXIT', batch)}} className="p-1 text-red-600 hover:bg-red-50 rounded" title="Retirar deste lote"><Minus size={16}/></button>
+                                                                                    <button onClick={(e) => {e.stopPropagation(); deleteItem(batch.id)}} className="p-1 text-gray-400 hover:text-red-500 rounded" title="Excluir Lote"><Trash2 size={16}/></button>
+                                                                                </td>
+                                                                            </tr>
+                                                                        ))}
+                                                                    </tbody>
+                                                                </table>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                )}
+                                            </React.Fragment>
+                                        ))
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            );
+
+            const renderHistory = () => (
+                <div className="space-y-4">
+                    <div className="flex justify-between items-center">
+                        <h2 className="text-xl font-bold text-gray-800">Histórico de Movimentação</h2>
+                        <div className="flex gap-2">
+                            <button onClick={exportExcel} className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded text-sm shadow">
+                                <FileSpreadsheet size={16} /> Excel
+                            </button>
+                            <button onClick={exportPDF} className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded text-sm shadow">
+                                <FileText size={16} /> PDF
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                        <div className="max-h-[500px] overflow-y-auto">
+                            <table className="w-full text-left text-sm text-gray-600">
+                                <thead className="bg-gray-50 text-gray-800 font-semibold sticky top-0 border-b">
+                                    <tr>
+                                        <th className="p-4">Data</th>
+                                        <th className="p-4">Tipo</th>
+                                        <th className="p-4">Item</th>
+                                        <th className="p-4">Detalhe (Motivo/Destino)</th>
+                                        <th className="p-4 text-right">Qtd</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                    {history.map(h => (
+                                        <tr key={h.id}>
+                                            <td className="p-4 text-xs text-gray-500">{new Date(h.date).toLocaleString()}</td>
+                                            <td className="p-4">
+                                                <span className={`px-2 py-1 rounded text-xs font-bold ${h.type === 'ENTRADA' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                                    {h.type}
+                                                </span>
+                                            </td>
+                                            <td className="p-4">{h.itemName} <span className="text-xs text-gray-400 ml-1">({h.sector})</span></td>
+                                            <td className="p-4 italic text-gray-500">{h.detail}</td>
+                                            <td className="p-4 text-right font-mono">{h.qty}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            );
+
+            const renderSettings = () => (
+                <div className="space-y-6">
+                    <h2 className="text-xl font-bold text-gray-800">Configurações do Sistema</h2>
+                    
+                    {/* Upload Logo */}
+                    <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                        <h3 className="font-semibold mb-4 flex items-center gap-2"><Building2 size={20}/> Identidade Visual</h3>
+                        <div className="flex items-center gap-4">
+                            <div className="w-20 h-20 bg-gray-100 rounded flex items-center justify-center border overflow-hidden">
+                                {companyLogo ? <img src={companyLogo} alt="Logo" className="w-full h-full object-contain" /> : <span className="text-xs text-gray-400">Sem Logo</span>}
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Upload da Logo da Empresa</label>
+                                <input type="file" accept="image/*" onChange={handleLogoUpload} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"/>
+                                <p className="text-xs text-gray-400 mt-1">Será exibida na Home e nos PDFs.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Gestão de Listas */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        <ListManager title="Setores" items={sectors} setItems={setSectors} placeholder="Novo setor..." />
+                        <ListManager title="Motivos de Entrada" items={reasons} setItems={setReasons} placeholder="Novo motivo..." />
+                        <ListManager title="Destinos de Saída" items={destinations} setItems={setDestinations} placeholder="Novo destino..." />
+                    </div>
+
+                    {/* Backup */}
+                    <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                        <h3 className="font-semibold mb-4">Banco de Dados (JSON)</h3>
+                        <div className="flex gap-4">
+                            <button onClick={exportJSON} className="flex-1 border-2 border-blue-100 hover:border-blue-500 hover:bg-blue-50 text-blue-700 p-4 rounded-xl flex flex-col items-center gap-2 transition">
+                                <Download size={24} />
+                                <span className="font-medium">Baixar Backup</span>
+                                <span className="text-xs text-blue-400">Exportar JSON</span>
+                            </button>
+                            <label className="flex-1 border-2 border-orange-100 hover:border-orange-500 hover:bg-orange-50 text-orange-700 p-4 rounded-xl flex flex-col items-center gap-2 cursor-pointer transition">
+                                <Upload size={24} />
+                                <span className="font-medium">Restaurar Dados</span>
+                                <span className="text-xs text-orange-400">Upload JSON</span>
+                                <input type="file" className="hidden" accept=".json" onChange={importJSON}/>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            );
+
+            return (
+                <div className="min-h-screen flex">
+                    {/* Sidebar */}
+                    <aside className="w-64 bg-white border-r border-gray-200 hidden md:flex flex-col">
+                        <div className="p-6 border-b border-gray-100 flex flex-col items-center text-center">
+                            {companyLogo ? (
+                                <img src={companyLogo} alt="Logo" className="h-16 mb-2 object-contain"/>
+                            ) : (
+                                <div className="h-12 w-12 bg-red-100 rounded-full flex items-center justify-center text-red-600 mb-2">
+                                    <Package size={24} />
+                                </div>
+                            )}
+                            <h1 className="font-bold text-gray-800">Câmara de Avaria</h1>
+                            <p className="text-xs text-gray-400">Controle e Qualidade</p>
+                        </div>
+                        <nav className="flex-1 p-4 space-y-2">
+                            <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition ${activeTab === 'dashboard' ? 'bg-blue-50 text-blue-600' : 'text-gray-600 hover:bg-gray-50'}`}>
+                                <LayoutDashboard size={18} /> Visão Geral
+                            </button>
+                            <button onClick={() => setActiveTab('inventory')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition ${activeTab === 'inventory' ? 'bg-blue-50 text-blue-600' : 'text-gray-600 hover:bg-gray-50'}`}>
+                                <Package size={18} /> Estoque
+                            </button>
+                            <button onClick={() => setActiveTab('history')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition ${activeTab === 'history' ? 'bg-blue-50 text-blue-600' : 'text-gray-600 hover:bg-gray-50'}`}>
+                                <ArrowRightLeft size={18} /> Relatórios
+                            </button>
+                            <button onClick={() => setActiveTab('settings')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition ${activeTab === 'settings' ? 'bg-blue-50 text-blue-600' : 'text-gray-600 hover:bg-gray-50'}`}>
+                                <Settings size={18} /> Configurações
+                            </button>
+                        </nav>
+                        <div className="p-4 border-t border-gray-100 text-xs text-center text-gray-400">
+                            v1.4.0 - Sistema Local
+                        </div>
+                    </aside>
+
+                    {/* Main Content */}
+                    <main className="flex-1 p-8 overflow-y-auto h-screen">
+                        {/* Mobile Header */}
+                        <div className="md:hidden mb-6 flex items-center justify-between">
+                            <h1 className="font-bold text-gray-800">Câmara de Avaria</h1>
+                            <div className="flex gap-2">
+                                <button onClick={() => setActiveTab('dashboard')} className="p-2 bg-white rounded shadow-sm"><LayoutDashboard size={20}/></button>
+                                <button onClick={() => setActiveTab('inventory')} className="p-2 bg-white rounded shadow-sm"><Package size={20}/></button>
+                            </div>
+                        </div>
+
+                        {activeTab === 'dashboard' && renderDashboard()}
+                        {activeTab === 'inventory' && renderInventory()}
+                        {activeTab === 'history' && renderHistory()}
+                        {activeTab === 'settings' && renderSettings()}
+                    </main>
+
+                    {/* Modal */}
+                    {showModal && (
+                        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-fade-in-up">
+                                <div className={`p-4 text-white font-bold flex justify-between items-center ${modalType === 'ADD' ? 'bg-blue-600' : modalType === 'ENTRY' ? 'bg-green-600' : 'bg-red-600'}`}>
+                                    <span>
+                                        {modalType === 'ADD' && 'Novo Item'}
+                                        {modalType === 'ENTRY' && 'Registrar Entrada (Avaria)'}
+                                        {modalType === 'EXIT' && 'Registrar Saída (Destino)'}
+                                    </span>
+                                    <button onClick={closeModal} className="hover:bg-white/20 p-1 rounded">✕</button>
+                                </div>
+                                <div className="p-6 space-y-4">
+                                    {modalType === 'ADD' && (
+                                        <>
+                                            <div className="relative">
+                                                <label className="block text-sm font-medium text-gray-700">Nome do Item</label>
+                                                <input 
+                                                    type="text" 
+                                                    value={formData.name} 
+                                                    onChange={e => {
+                                                        const val = e.target.value;
+                                                        setFormData({...formData, name: val});
+                                                        updateSuggestions(val);
+                                                    }} 
+                                                    className="mt-1 w-full border rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none" 
+                                                    placeholder="Ex: Arroz 5kg"
+                                                    autoComplete="off"
+                                                />
+                                                {nameSuggestions.length > 0 && (
+                                                    <ul className="absolute z-10 w-full bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-40 overflow-y-auto">
+                                                        {nameSuggestions.map((suggestion, index) => (
+                                                            <li 
+                                                                key={index}
+                                                                onClick={() => selectSuggestion(suggestion)}
+                                                                className="p-2 hover:bg-blue-50 cursor-pointer text-sm text-gray-700 border-b last:border-0"
+                                                            >
+                                                                {suggestion}
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                )}
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700">Setor</label>
+                                                <select value={formData.sector} onChange={e => setFormData({...formData, sector: e.target.value})} className="mt-1 w-full border rounded-lg p-2 bg-white">
+                                                    {sectors.map(s => <option key={s} value={s}>{s}</option>)}
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700">Validade</label>
+                                                <input type="date" value={formData.expiry} onChange={e => setFormData({...formData, expiry: e.target.value})} className="mt-1 w-full border rounded-lg p-2"/>
+                                            </div>
+                                        </>
+                                    )}
+
+                                    {(modalType === 'ENTRY' || modalType === 'EXIT') && (
+                                        <div className="bg-gray-50 p-3 rounded mb-2">
+                                            <p className="font-bold text-gray-800">{formData.name}</p>
+                                            <p className="text-xs text-gray-500">Atual: {selectedItem?.quantity} un</p>
+                                        </div>
+                                    )}
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700">Quantidade</label>
+                                        <input type="number" min="1" value={formData.quantity} onChange={e => setFormData({...formData, quantity: e.target.value})} className="mt-1 w-full border rounded-lg p-2 text-lg font-bold text-center"/>
+                                    </div>
+
+                                    {modalType === 'ENTRY' || modalType === 'ADD' ? (
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700">Motivo da Entrada</label>
+                                            <select value={formData.reason} onChange={e => setFormData({...formData, reason: e.target.value})} className="mt-1 w-full border rounded-lg p-2 bg-white">
+                                                {reasons.map(r => <option key={r} value={r}>{r}</option>)}
+                                            </select>
+                                        </div>
+                                    ) : (
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700">Destino da Saída</label>
+                                            <select value={formData.destination} onChange={e => setFormData({...formData, destination: e.target.value})} className="mt-1 w-full border rounded-lg p-2 bg-white">
+                                                {destinations.map(d => <option key={d} value={d}>{d}</option>)}
+                                            </select>
+                                        </div>
+                                    )}
+
+                                    <button 
+                                        onClick={modalType === 'ADD' ? handleAddItem : handleMovement}
+                                        className="w-full bg-gray-900 hover:bg-black text-white py-3 rounded-lg font-bold shadow-lg transform transition hover:scale-[1.02]"
+                                    >
+                                        Confirmar
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Componente Invisível para Renderização de Gráficos do PDF (Mantido no final) */}
+                    <OffscreenCharts items={items} history={history} />
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
