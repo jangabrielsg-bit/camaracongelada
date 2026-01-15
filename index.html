@@ -64,14 +64,15 @@
             ChevronDown: (props) => <IconBase {...props}><path d="m6 9 6 6 6-6"/></IconBase>,
             ChevronRight: (props) => <IconBase {...props}><path d="m9 18 6-6-6-6"/></IconBase>,
             Pencil: (props) => <IconBase {...props}><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></IconBase>,
-            X: (props) => <IconBase {...props}><path d="M18 6 6 18"/><path d="m6 6 18 18"/></IconBase>
+            X: (props) => <IconBase {...props}><path d="M18 6 6 18"/><path d="m6 6 18 18"/></IconBase>,
+            Scale: (props) => <IconBase {...props}><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/></IconBase>
         };
 
         const { 
             LayoutDashboard, Package, ArrowRightLeft, Settings, 
             Download, Upload, FileSpreadsheet, FileText, 
             Plus, Minus, Trash2, Search, AlertTriangle, Building2, TrendingUp,
-            ChevronDown, ChevronRight, Pencil, X
+            ChevronDown, ChevronRight, Pencil, X, Scale
         } = Icons;
 
         // --- Funções Auxiliares de Data ---
@@ -175,25 +176,16 @@
                     animation: false, 
                     devicePixelRatio: 2,
                     layout: {
-                        padding: {
-                            top: 40,
-                            bottom: 80, // Aumentado para evitar sobreposição com a legenda
-                            left: 50,
-                            right: 50
-                        }
+                        padding: 60 // Aumentei o padding para evitar cortes
                     },
                     plugins: {
-                        legend: { 
-                            position: 'bottom', 
-                            labels: { padding: 30 } 
-                        },
+                        legend: { position: 'bottom', labels: { padding: 30 } },
                         datalabels: {
                             color: '#000',
                             font: { weight: 'bold', size: 11 },
                             formatter: (value, ctx) => {
                                 let sum = 0;
-                                let dataArr = ctx.chart.data.datasets[0].data;
-                                dataArr.map(data => { sum += data; });
+                                ctx.chart.data.datasets[0].data.map(data => { sum += data; });
                                 let percentage = (value * 100 / sum).toFixed(2) + "%";
                                 return percentage;
                             },
@@ -275,8 +267,6 @@
         // --- Componente Principal ---
         const App = () => {
             const [activeTab, setActiveTab] = useState('dashboard');
-            
-            // Dados
             const [items, setItems] = useState([]);
             const [history, setHistory] = useState([]);
             const [sectors, setSectors] = useState(['Geral', 'Perecíveis', 'Secos', 'Bebidas', 'Hortifruti', 'Limpeza']);
@@ -284,18 +274,16 @@
             const [destinations, setDestinations] = useState(['Descarte (Lixo)', 'Devolução Fornecedor', 'Doação', 'Recuperado (Venda)']);
             const [companyLogo, setCompanyLogo] = useState(null);
             
-            // Estado de UI
             const [expandedGroups, setExpandedGroups] = useState({}); 
             const [nameSuggestions, setNameSuggestions] = useState([]); 
             const [searchTerm, setSearchTerm] = useState(''); 
 
-            // Formulários e Modais
             const [showModal, setShowModal] = useState(false);
             const [modalType, setModalType] = useState('ADD'); 
             const [selectedItem, setSelectedItem] = useState(null);
             
             const [formData, setFormData] = useState({
-                name: '', sector: '', quantity: 0, expiry: '', reason: '', destination: ''
+                name: '', sector: '', quantity: 0, expiry: '', reason: '', destination: '', unit: 'un'
             });
 
             // Refs Gráficos Visíveis
@@ -353,7 +341,8 @@
                             name: normalizedName, 
                             sector: item.sector,
                             totalQty: 0,
-                            batches: []
+                            batches: [],
+                            unit: item.unit // Pega a unidade do primeiro item para exibir no grupo
                         };
                     }
                     groups[key].totalQty = (groups[key].totalQty || 0) + item.quantity;
@@ -394,7 +383,8 @@
                 setFormData(prev => ({
                     ...prev,
                     name: name,
-                    sector: existingItem ? existingItem.sector : prev.sector
+                    sector: existingItem ? existingItem.sector : prev.sector,
+                    unit: existingItem ? (existingItem.unit || 'un') : prev.unit
                 }));
                 setNameSuggestions([]); 
             };
@@ -411,6 +401,7 @@
                     name: finalName, 
                     sector: formData.sector || sectors[0],
                     quantity: Number(formData.quantity),
+                    unit: formData.unit || 'un',
                     expiry: formData.expiry,
                     reason: formData.reason || reasons[0],
                     entryDate: new Date().toISOString()
@@ -440,7 +431,8 @@
                             ...item, 
                             name: formData.name, 
                             sector: formData.sector, 
-                            quantity: Number(formData.quantity), 
+                            quantity: Number(formData.quantity),
+                            unit: formData.unit,
                             expiry: formData.expiry, 
                             reason: formData.reason 
                         };
@@ -496,7 +488,7 @@
             const closeModal = () => {
                 setShowModal(false);
                 setSelectedItem(null);
-                setFormData({ name: '', sector: sectors[0], quantity: 0, expiry: '', reason: reasons[0], destination: destinations[0] });
+                setFormData({ name: '', sector: sectors[0], quantity: 0, expiry: '', reason: reasons[0], destination: destinations[0], unit: 'un' });
                 setNameSuggestions([]);
             };
 
@@ -507,6 +499,7 @@
                     name: item ? item.name : '', 
                     sector: item ? item.sector : sectors[0], 
                     quantity: type === 'EDIT' ? item.quantity : 1, 
+                    unit: item ? (item.unit || 'un') : 'un',
                     expiry: item ? item.expiry : '',
                     reason: item ? (item.reason || reasons[0]) : reasons[0], 
                     destination: destinations[0]
@@ -556,7 +549,8 @@
                     ID: i.id, 
                     Produto: i.name, 
                     Setor: i.sector, 
-                    Qtd: i.quantity, 
+                    Qtd: Number(i.quantity.toFixed(2)), 
+                    Unidade: i.unit || 'un',
                     Validade: formatDate(i.expiry), 
                     Motivo: i.reason || 'N/A' 
                 })));
@@ -566,7 +560,7 @@
                     Tipo: h.type, 
                     Produto: h.itemName, 
                     Setor: h.sector, 
-                    Qtd: h.qty, 
+                    Qtd: Number(h.qty.toFixed(2)), 
                     "Motivo/Destino": h.detail 
                 })));
                 XLSX.utils.book_append_sheet(wb, wsHistory, "Movimentações");
@@ -605,7 +599,13 @@
                 });
 
                 const tableColumn = ["Produto", "Setor", "Motivo Entrada", "Qtd", "Validade"];
-                const tableRows = sortedItems.map(item => [item.name, item.sector, item.reason || '-', item.quantity.toFixed(2), formatDate(item.expiry)]);
+                const tableRows = sortedItems.map(item => [
+                    item.name, 
+                    item.sector, 
+                    item.reason || '-', 
+                    `${item.quantity.toFixed(2)} ${item.unit || 'un'}`, // Formatação com unidade
+                    formatDate(item.expiry)
+                ]);
                 
                 doc.autoTable({ 
                     head: [tableColumn], 
@@ -647,7 +647,13 @@
                 doc.setFontSize(14);
                 doc.text("Histórico Recente de Movimentações", 14, 20);
                 const histColumn = ["Data", "Tipo", "Produto", "Qtd", "Motivo/Destino"];
-                const histRows = history.slice(0, 100).map(h => [new Date(h.date).toLocaleDateString(), h.type, h.itemName, Number(h.qty).toFixed(2), h.detail]);
+                const histRows = history.slice(0, 100).map(h => [
+                    new Date(h.date).toLocaleDateString(), 
+                    h.type, 
+                    h.itemName, 
+                    Number(h.qty).toFixed(2), 
+                    h.detail
+                ]);
                 doc.autoTable({ head: [histColumn], body: histRows, startY: 25, theme: 'striped', styles: { fontSize: 8 } });
                 
                 doc.save("relatorio_avaria_completo.pdf");
@@ -710,7 +716,8 @@
                             responsive: true, 
                             plugins: { 
                                 title: { display: true, text: 'Por Setor' },
-                                tooltip: { callbacks: { label: (c) => ` ${c.label}: ${c.raw.toFixed(2)}` } }
+                                tooltip: { callbacks: { label: (c) => ` ${c.label}: ${c.raw.toFixed(2)}` } },
+                                datalabels: { display: false } // Limpa visual no Dashboard
                             } 
                         }
                     });
@@ -727,7 +734,8 @@
                             responsive: true, 
                             plugins: { 
                                 title: { display: true, text: 'Evolução Diária' },
-                                tooltip: { callbacks: { label: (c) => ` ${c.label}: ${c.raw.toFixed(2)}` } }
+                                tooltip: { callbacks: { label: (c) => ` ${c.label}: ${c.raw.toFixed(2)}` } },
+                                datalabels: { display: false } // Limpa visual no Dashboard
                             }, 
                             scales: { y: { beginAtZero: true } } 
                         }
@@ -745,7 +753,8 @@
                             plugins: { 
                                 title: { display: true, text: 'Motivos de Entrada (Estoque Atual)' }, 
                                 legend: { display: false },
-                                tooltip: { callbacks: { label: (c) => ` ${c.label}: ${c.raw.toFixed(2)}` } }
+                                tooltip: { callbacks: { label: (c) => ` ${c.label}: ${c.raw.toFixed(2)}` } },
+                                datalabels: { display: false } // Limpa visual no Dashboard
                             } 
                         }
                     });
@@ -760,7 +769,8 @@
                             responsive: true, 
                             plugins: { 
                                 title: { display: true, text: 'Destinos de Saída (Histórico)' },
-                                tooltip: { callbacks: { label: (c) => ` ${c.label}: ${c.raw.toFixed(2)}` } }
+                                tooltip: { callbacks: { label: (c) => ` ${c.label}: ${c.raw.toFixed(2)}` } },
+                                datalabels: { display: false } // Limpa visual no Dashboard
                             } 
                         }
                     });
@@ -806,7 +816,7 @@
                         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
                             <h3 className="text-gray-500 text-sm font-medium">Itens em Avaria</h3>
                             <p className="text-3xl font-bold text-red-600">
-                                {items.reduce((acc, i) => acc + i.quantity, 0).toFixed(2)}
+                                {Number(items.reduce((acc, i) => acc + i.quantity, 0).toFixed(2))}
                             </p>
                         </div>
                         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
@@ -900,7 +910,7 @@
                                                     </td>
                                                     <td className="p-4 font-bold text-gray-900">{group.name}</td>
                                                     <td className="p-4"><span className="px-2 py-1 rounded bg-gray-100 text-xs">{group.sector}</span></td>
-                                                    <td className="p-4 text-center text-lg font-bold text-blue-600">{Number(group.totalQty.toFixed(2))}</td>
+                                                    <td className="p-4 text-center text-lg font-bold text-blue-600">{group.totalQty.toFixed(2)}</td>
                                                     <td className="p-4 text-center text-xs text-gray-400">{group.batches.length} lote(s)</td>
                                                 </tr>
 
@@ -929,7 +939,9 @@
                                                                                         {isExpired(batch.expiry) && <AlertTriangle size={12}/>}
                                                                                     </span>
                                                                                 </td>
-                                                                                <td className="p-3 text-center font-bold text-sm">{batch.quantity.toFixed(2)}</td>
+                                                                                <td className="p-3 text-center font-bold text-sm">
+                                                                                    {batch.quantity.toFixed(2)} {batch.unit || 'un'}
+                                                                                </td>
                                                                                 <td className="p-3 flex justify-center gap-2">
                                                                                     <button onClick={(e) => {e.stopPropagation(); openModal('ENTRY', batch)}} className="p-1 text-green-600 hover:bg-green-50 rounded" title="Adicionar a este lote"><Plus size={16}/></button>
                                                                                     <button onClick={(e) => {e.stopPropagation(); openModal('EXIT', batch)}} className="p-1 text-red-600 hover:bg-red-50 rounded" title="Retirar deste lote"><Minus size={16}/></button>
@@ -1099,7 +1111,7 @@
                             </button>
                         </nav>
                         <div className="p-4 border-t border-gray-100 text-xs text-center text-gray-400">
-                            v1.10.0 - Sistema Local
+                            v1.13.0 - Sistema Local
                         </div>
                     </aside>
 
@@ -1170,9 +1182,18 @@
                                                     {sectors.map(s => <option key={s} value={s}>{s}</option>)}
                                                 </select>
                                             </div>
-                                            <div>
-                                                <label className="block text-sm font-medium text-gray-700">Validade</label>
-                                                <input type="date" value={formData.expiry} onChange={e => setFormData({...formData, expiry: e.target.value})} className="mt-1 w-full border rounded-lg p-2"/>
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700">Unidade</label>
+                                                    <select value={formData.unit} onChange={e => setFormData({...formData, unit: e.target.value})} className="mt-1 w-full border rounded-lg p-2 bg-white">
+                                                        <option value="un">Unidade (un)</option>
+                                                        <option value="kg">Quilograma (kg)</option>
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700">Validade</label>
+                                                    <input type="date" value={formData.expiry} onChange={e => setFormData({...formData, expiry: e.target.value})} className="mt-1 w-full border rounded-lg p-2"/>
+                                                </div>
                                             </div>
                                         </>
                                     )}
@@ -1180,7 +1201,7 @@
                                     {(modalType === 'ENTRY' || modalType === 'EXIT') && (
                                         <div className="bg-gray-50 p-3 rounded mb-2">
                                             <p className="font-bold text-gray-800">{formData.name}</p>
-                                            <p className="text-xs text-gray-500">Atual: {selectedItem?.quantity} un</p>
+                                            <p className="text-xs text-gray-500">Atual: {selectedItem?.quantity.toFixed(2)} {selectedItem?.unit}</p>
                                         </div>
                                     )}
 
