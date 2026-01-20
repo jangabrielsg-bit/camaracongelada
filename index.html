@@ -64,8 +64,7 @@
             ChevronDown: (props) => <IconBase {...props}><path d="m6 9 6 6 6-6"/></IconBase>,
             ChevronRight: (props) => <IconBase {...props}><path d="m9 18 6-6-6-6"/></IconBase>,
             Pencil: (props) => <IconBase {...props}><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></IconBase>,
-            X: (props) => <IconBase {...props}><path d="M18 6 6 18"/><path d="m6 6 18 18"/></IconBase>,
-            Scale: (props) => <IconBase {...props}><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/></IconBase>
+            X: (props) => <IconBase {...props}><path d="M18 6 6 18"/><path d="m6 6 18 18"/></IconBase>
         };
 
         const { 
@@ -283,7 +282,7 @@
             const [selectedItem, setSelectedItem] = useState(null);
             
             const [formData, setFormData] = useState({
-                name: '', sector: '', quantity: 0, expiry: '', reason: '', destination: '', unit: 'un'
+                name: '', sector: '', quantity: 0, expiry: '', reason: '', destination: '', unit: 'un', type: '', date: ''
             });
 
             // Refs Gráficos Visíveis
@@ -431,7 +430,7 @@
                             ...item, 
                             name: formData.name, 
                             sector: formData.sector, 
-                            quantity: Number(formData.quantity),
+                            quantity: Number(formData.quantity), 
                             unit: formData.unit,
                             expiry: formData.expiry, 
                             reason: formData.reason 
@@ -479,6 +478,87 @@
                 closeModal();
             };
 
+            // Novas funções para CRUD de Histórico
+            const deleteHistory = (id) => {
+                const recordToDelete = history.find(h => h.id === id);
+                if (!recordToDelete) return;
+
+                if(confirm('Deseja excluir este registro? O estoque atual SERÁ atualizado para refletir essa mudança.')) {
+                    // Atualizar Estoque
+                    const updatedItems = items.map(item => {
+                        if (item.id === recordToDelete.itemId) {
+                            let newQty = item.quantity;
+                            // Se era ENTRADA e vou apagar, removo do estoque.
+                            // Se era SAÍDA e vou apagar, devolvo ao estoque.
+                            if (recordToDelete.type === 'ENTRADA') {
+                                newQty -= recordToDelete.qty;
+                            } else {
+                                newQty += recordToDelete.qty;
+                            }
+                            // Evitar estoque negativo por inconsistência, ou permitir? Permitir para correção é melhor.
+                            return { ...item, quantity: Number(newQty.toFixed(2)) };
+                        }
+                        return item;
+                    });
+
+                    setItems(updatedItems);
+                    setHistory(history.filter(h => h.id !== id));
+                }
+            };
+
+            const handleEditHistory = () => {
+                const originalRecord = selectedItem; // O item original do histórico
+                const newQty = Number(formData.quantity);
+                const newType = formData.type;
+                
+                // Validação básica
+                if (newQty <= 0) return alert("Quantidade deve ser maior que zero.");
+
+                // 1. Atualizar Estoque (Reverter antigo -> Aplicar novo)
+                const updatedItems = items.map(item => {
+                    if (item.id === originalRecord.itemId) {
+                        let currentQty = item.quantity;
+                        
+                        // Reverter efeito do registro original
+                        if (originalRecord.type === 'ENTRADA') {
+                            currentQty -= originalRecord.qty;
+                        } else {
+                            currentQty += originalRecord.qty;
+                        }
+
+                        // Aplicar efeito do novo registro
+                        if (newType === 'ENTRADA') {
+                            currentQty += newQty;
+                        } else {
+                            currentQty -= newQty;
+                        }
+                        
+                        return { ...item, quantity: Number(currentQty.toFixed(2)) };
+                    }
+                    return item;
+                });
+
+                // 2. Atualizar o Registro no Histórico
+                const updatedHistory = history.map(h => {
+                    if (h.id === originalRecord.id) {
+                        return {
+                            ...h,
+                            itemName: formData.name, // Atualiza nome visualmente no histórico
+                            qty: newQty,
+                            type: newType,
+                            detail: newType === 'ENTRADA' ? formData.reason : formData.destination,
+                            date: formData.date ? new Date(formData.date).toISOString() : h.date
+                        };
+                    }
+                    return h;
+                });
+
+                setItems(updatedItems);
+                setHistory(updatedHistory);
+                closeModal();
+            }
+
+
             const deleteItem = (id) => {
                 if(confirm('Tem certeza que deseja excluir este item/lote e todo seu histórico?')) {
                     setItems(items.filter(i => i.id !== id));
@@ -488,22 +568,37 @@
             const closeModal = () => {
                 setShowModal(false);
                 setSelectedItem(null);
-                setFormData({ name: '', sector: sectors[0], quantity: 0, expiry: '', reason: reasons[0], destination: destinations[0], unit: 'un' });
+                setFormData({ name: '', sector: sectors[0], quantity: 0, expiry: '', reason: reasons[0], destination: destinations[0], unit: 'un', type: '', date: '' });
                 setNameSuggestions([]);
             };
 
             const openModal = (type, item = null) => {
                 setModalType(type);
                 setSelectedItem(item);
-                setFormData({ 
-                    name: item ? item.name : '', 
-                    sector: item ? item.sector : sectors[0], 
-                    quantity: type === 'EDIT' ? item.quantity : 1, 
-                    unit: item ? (item.unit || 'un') : 'un',
-                    expiry: item ? item.expiry : '',
-                    reason: item ? (item.reason || reasons[0]) : reasons[0], 
-                    destination: destinations[0]
-                });
+                
+                if (type === 'EDIT_HISTORY') {
+                     setFormData({
+                        name: item.itemName,
+                        quantity: item.qty,
+                        type: item.type,
+                        reason: item.type === 'ENTRADA' ? item.detail : reasons[0],
+                        destination: item.type === 'SAÍDA' ? item.detail : destinations[0],
+                        date: item.date.split('T')[0],
+                        sector: item.sector, // Mantém setor original
+                        unit: 'un' // Histórico antigo pode não ter unidade, default 'un'
+                     });
+                } else {
+                    setFormData({ 
+                        name: item ? item.name : '', 
+                        sector: item ? item.sector : sectors[0], 
+                        quantity: type === 'EDIT' ? item.quantity : 1, 
+                        unit: item ? (item.unit || 'un') : 'un',
+                        expiry: item ? item.expiry : '',
+                        reason: item ? (item.reason || reasons[0]) : reasons[0], 
+                        destination: destinations[0],
+                        type: '' // Reset
+                    });
+                }
                 setShowModal(true);
             };
 
@@ -910,7 +1005,7 @@
                                                     </td>
                                                     <td className="p-4 font-bold text-gray-900">{group.name}</td>
                                                     <td className="p-4"><span className="px-2 py-1 rounded bg-gray-100 text-xs">{group.sector}</span></td>
-                                                    <td className="p-4 text-center text-lg font-bold text-blue-600">{group.totalQty.toFixed(2)}</td>
+                                                    <td className="p-4 text-center text-lg font-bold text-blue-600">{Number(group.totalQty.toFixed(2))}</td>
                                                     <td className="p-4 text-center text-xs text-gray-400">{group.batches.length} lote(s)</td>
                                                 </tr>
 
@@ -1009,6 +1104,7 @@
                                         <th className="p-4">Item</th>
                                         <th className="p-4">Detalhe (Motivo/Destino)</th>
                                         <th className="p-4 text-right">Qtd</th>
+                                        <th className="p-4 text-center">Ações</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-100">
@@ -1023,10 +1119,14 @@
                                             <td className="p-4">{h.itemName} <span className="text-xs text-gray-400 ml-1">({h.sector})</span></td>
                                             <td className="p-4 italic text-gray-500">{h.detail}</td>
                                             <td className="p-4 text-right font-mono">{Number(h.qty).toFixed(2)}</td>
+                                            <td className="p-4 flex justify-center gap-2">
+                                                <button onClick={() => openModal('EDIT_HISTORY', h)} className="p-1 text-blue-600 hover:bg-blue-50 rounded" title="Editar Registro"><Pencil size={16}/></button>
+                                                <button onClick={() => deleteHistory(h.id)} className="p-1 text-red-600 hover:bg-red-50 rounded" title="Excluir Registro"><Trash2 size={16}/></button>
+                                            </td>
                                         </tr>
                                     ))}
                                     {filteredHistory.length === 0 && (
-                                        <tr><td colSpan="5" className="p-8 text-center text-gray-400">Nenhum registro encontrado.</td></tr>
+                                        <tr><td colSpan="6" className="p-8 text-center text-gray-400">Nenhum registro encontrado.</td></tr>
                                     )}
                                 </tbody>
                             </table>
@@ -1111,7 +1211,7 @@
                             </button>
                         </nav>
                         <div className="p-4 border-t border-gray-100 text-xs text-center text-gray-400">
-                            v1.13.0 - Sistema Local
+                            v1.14.0 - Sistema Local
                         </div>
                     </aside>
 
@@ -1136,18 +1236,25 @@
                     {showModal && (
                         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
                             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-fade-in-up">
-                                <div className={`p-4 text-white font-bold flex justify-between items-center ${modalType === 'ADD' ? 'bg-blue-600' : modalType === 'ENTRY' ? 'bg-green-600' : modalType === 'EXIT' ? 'bg-red-600' : 'bg-blue-800'}`}>
+                                <div className={`p-4 text-white font-bold flex justify-between items-center ${modalType === 'ADD' ? 'bg-blue-600' : modalType === 'ENTRY' ? 'bg-green-600' : (modalType === 'EXIT' || modalType === 'EDIT_HISTORY' && formData.type === 'SAÍDA') ? 'bg-red-600' : 'bg-blue-800'}`}>
                                     <span>
                                         {modalType === 'ADD' && 'Novo Item'}
                                         {modalType === 'ENTRY' && 'Registrar Entrada (Avaria)'}
                                         {modalType === 'EXIT' && 'Registrar Saída (Destino)'}
                                         {modalType === 'EDIT' && 'Editar Item'}
+                                        {modalType === 'EDIT_HISTORY' && 'Editar Registro de Histórico'}
                                     </span>
                                     <button onClick={closeModal} className="hover:bg-white/20 p-1 rounded">✕</button>
                                 </div>
                                 <div className="p-6 space-y-4">
-                                    {(modalType === 'ADD' || modalType === 'EDIT') && (
+                                    {(modalType === 'ADD' || modalType === 'EDIT' || modalType === 'EDIT_HISTORY') && (
                                         <>
+                                            {modalType === 'EDIT_HISTORY' && (
+                                                <div className="mb-4 p-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-800 flex items-center gap-2">
+                                                    <AlertTriangle size={14} />
+                                                    <span>Atenção: A alteração deste registro irá atualizar automaticamente o saldo do estoque atual.</span>
+                                                </div>
+                                            )}
                                             <div className="relative">
                                                 <label className="block text-sm font-medium text-gray-700">Nome do Item</label>
                                                 <input 
@@ -1156,13 +1263,13 @@
                                                     onChange={e => {
                                                         const val = e.target.value;
                                                         setFormData({...formData, name: val});
-                                                        updateSuggestions(val);
+                                                        if (modalType !== 'EDIT_HISTORY') updateSuggestions(val);
                                                     }} 
                                                     className="mt-1 w-full border rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none" 
                                                     placeholder="Ex: Arroz 5kg"
                                                     autoComplete="off"
                                                 />
-                                                {nameSuggestions.length > 0 && (
+                                                {nameSuggestions.length > 0 && modalType !== 'EDIT_HISTORY' && (
                                                     <ul className="absolute z-10 w-full bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-40 overflow-y-auto">
                                                         {nameSuggestions.map((suggestion, index) => (
                                                             <li 
@@ -1176,25 +1283,35 @@
                                                     </ul>
                                                 )}
                                             </div>
-                                            <div>
-                                                <label className="block text-sm font-medium text-gray-700">Setor</label>
-                                                <select value={formData.sector} onChange={e => setFormData({...formData, sector: e.target.value})} className="mt-1 w-full border rounded-lg p-2 bg-white">
-                                                    {sectors.map(s => <option key={s} value={s}>{s}</option>)}
-                                                </select>
-                                            </div>
-                                            <div className="grid grid-cols-2 gap-4">
+                                            {modalType === 'EDIT_HISTORY' && (
                                                 <div>
-                                                    <label className="block text-sm font-medium text-gray-700">Unidade</label>
-                                                    <select value={formData.unit} onChange={e => setFormData({...formData, unit: e.target.value})} className="mt-1 w-full border rounded-lg p-2 bg-white">
-                                                        <option value="un">Unidade (un)</option>
-                                                        <option value="kg">Quilograma (kg)</option>
+                                                    <label className="block text-sm font-medium text-gray-700">Data do Registro</label>
+                                                    <input type="date" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} className="mt-1 w-full border rounded-lg p-2"/>
+                                                </div>
+                                            )}
+                                            {modalType !== 'EDIT_HISTORY' && (
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700">Setor</label>
+                                                    <select value={formData.sector} onChange={e => setFormData({...formData, sector: e.target.value})} className="mt-1 w-full border rounded-lg p-2 bg-white">
+                                                        {sectors.map(s => <option key={s} value={s}>{s}</option>)}
                                                     </select>
                                                 </div>
-                                                <div>
-                                                    <label className="block text-sm font-medium text-gray-700">Validade</label>
-                                                    <input type="date" value={formData.expiry} onChange={e => setFormData({...formData, expiry: e.target.value})} className="mt-1 w-full border rounded-lg p-2"/>
+                                            )}
+                                            {modalType !== 'EDIT_HISTORY' && (
+                                                <div className="grid grid-cols-2 gap-4">
+                                                    <div>
+                                                        <label className="block text-sm font-medium text-gray-700">Unidade</label>
+                                                        <select value={formData.unit} onChange={e => setFormData({...formData, unit: e.target.value})} className="mt-1 w-full border rounded-lg p-2 bg-white">
+                                                            <option value="un">Unidade (un)</option>
+                                                            <option value="kg">Quilograma (kg)</option>
+                                                        </select>
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-sm font-medium text-gray-700">Validade</label>
+                                                        <input type="date" value={formData.expiry} onChange={e => setFormData({...formData, expiry: e.target.value})} className="mt-1 w-full border rounded-lg p-2"/>
+                                                    </div>
                                                 </div>
-                                            </div>
+                                            )}
                                         </>
                                     )}
 
@@ -1205,12 +1322,22 @@
                                         </div>
                                     )}
 
+                                    {modalType === 'EDIT_HISTORY' && (
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700">Tipo de Movimentação</label>
+                                            <select value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})} className="mt-1 w-full border rounded-lg p-2 bg-white">
+                                                <option value="ENTRADA">ENTRADA</option>
+                                                <option value="SAÍDA">SAÍDA</option>
+                                            </select>
+                                        </div>
+                                    )}
+
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700">Quantidade</label>
                                         <input type="number" min="0.01" step="0.01" value={formData.quantity} onChange={e => setFormData({...formData, quantity: e.target.value})} className="mt-1 w-full border rounded-lg p-2 text-lg font-bold text-center"/>
                                     </div>
 
-                                    {(modalType === 'ENTRY' || modalType === 'ADD' || modalType === 'EDIT') && (
+                                    {(modalType === 'ENTRY' || modalType === 'ADD' || modalType === 'EDIT' || (modalType === 'EDIT_HISTORY' && formData.type === 'ENTRADA')) && (
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700">Motivo da Entrada</label>
                                             <select value={formData.reason} onChange={e => setFormData({...formData, reason: e.target.value})} className="mt-1 w-full border rounded-lg p-2 bg-white">
@@ -1219,7 +1346,7 @@
                                         </div>
                                     )}
                                     
-                                    {modalType === 'EXIT' && (
+                                    {(modalType === 'EXIT' || (modalType === 'EDIT_HISTORY' && formData.type === 'SAÍDA')) && (
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700">Destino da Saída</label>
                                             <select value={formData.destination} onChange={e => setFormData({...formData, destination: e.target.value})} className="mt-1 w-full border rounded-lg p-2 bg-white">
@@ -1229,10 +1356,10 @@
                                     )}
 
                                     <button 
-                                        onClick={modalType === 'ADD' ? handleAddItem : modalType === 'EDIT' ? handleEditItem : handleMovement}
+                                        onClick={modalType === 'ADD' ? handleAddItem : modalType === 'EDIT' ? handleEditItem : modalType === 'EDIT_HISTORY' ? handleEditHistory : handleMovement}
                                         className="w-full bg-gray-900 hover:bg-black text-white py-3 rounded-lg font-bold shadow-lg transform transition hover:scale-[1.02]"
                                     >
-                                        {modalType === 'EDIT' ? 'Salvar Alterações' : 'Confirmar'}
+                                        {(modalType === 'EDIT' || modalType === 'EDIT_HISTORY') ? 'Salvar Alterações' : 'Confirmar'}
                                     </button>
                                 </div>
                             </div>
